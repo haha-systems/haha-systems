@@ -1,0 +1,41 @@
+---
+layout: layouts/base.njk
+---
+{% set entries = collections[section] %}
+<section class="section wrap">
+  <header class="section__header">
+    <p class="section__kicker">/ {{ section }}</p>
+    <h1 class="section__title">{{ title }}</h1>
+    {% if blurb %}<p class="section__blurb">{{ blurb }}</p>{% endif %}
+  </header>
+
+  {% if content %}
+    <div class="prose section__intro">
+      {{ content | safe }}
+    </div>
+  {% endif %}
+
+  {% if entries and entries.length %}
+    <ol class="entry-list" reversed>
+      {% for item in entries %}
+        <li class="entry-list__item">
+          <a class="entry-list__link" href="{{ item.url | url }}">
+            <span class="entry-list__date">
+              {% if item.data.date %}
+                <time datetime="{{ item.data.date | isoDate }}">{{ item.data.date | readableDate }}</time>
+              {% else %}
+                <span aria-hidden="true">—</span>
+              {% endif %}
+            </span>
+            <span class="entry-list__title">{{ item.data.title }}</span>
+            {% if item.data.summary %}
+              <span class="entry-list__summary">{{ item.data.summary }}</span>
+            {% endif %}
+          </a>
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <p class="section__empty">Nothing here yet.</p>
+  {% endif %}
+</section>

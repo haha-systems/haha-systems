@@ -1,0 +1,22 @@
+---
+layout: layouts/base.njk
+---
+<article class="entry wrap">
+  <header class="entry__header">
+    <p class="entry__meta">
+      <a href="{{ ('/' + section + '/') | url }}" class="entry__section">{{ section }}</a>
+      {% if date %}
+        <span aria-hidden="true">·</span>
+        <time datetime="{{ page.date | isoDate }}">{{ page.date | readableDate }}</time>
+      {% endif %}
+    </p>
+    <h1 class="entry__title">{{ title }}</h1>
+    {% if summary %}<p class="entry__summary">{{ summary }}</p>{% endif %}
+  </header>
+  <div class="prose">
+    {{ content | safe }}
+  </div>
+  <footer class="entry__footer">
+    <a href="{{ ('/' + section + '/') | url }}" class="entry__back">← Back to {{ section }}</a>
+  </footer>
+</article>

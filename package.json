@@ -1,0 +1,27 @@
+{
+  "name": "haha-systems",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Haha Systems — notes, writings, documents, projects, and Arachne.",
+  "packageManager": "bun@1.3.7",
+  "scripts": {
+    "clean": "rm -rf _site",
+    "build:css": "tailwindcss -i ./src/styles/main.css -o ./src/assets/css/main.css",
+    "watch:css": "tailwindcss -i ./src/styles/main.css -o ./src/assets/css/main.css --watch",
+    "build": "bun run build:css && eleventy",
+    "serve": "bun run build:css && eleventy --serve --port=8080",
+    "watch": "bun run build:css && eleventy --watch",
+    "debug": "DEBUG=Eleventy* eleventy"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@11ty/eleventy": "^2.0.1",
+    "@tailwindcss/cli": "^4.2.4",
+    "tailwindcss": "^4.2.4"
+  },
+  "dependencies": {
+    "luxon": "^3.7.2"
+  }
+}

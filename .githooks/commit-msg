@@ -1,0 +1,23 @@
+#!/bin/sh
+
+message_file="$1"
+subject="$(sed -n '1p' "$message_file")"
+
+pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9._-]+\))?!?: .{1,72}$'
+
+if ! printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+  cat >&2 <<'EOF'
+Invalid commit subject.
+
+Use Conventional Commits:
+  <type>[optional scope]: <description>
+
+Allowed types:
+  build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test
+
+Examples:
+  feat: add section index pages
+  fix(css): balance home section borders
+EOF
+  exit 1
+fi

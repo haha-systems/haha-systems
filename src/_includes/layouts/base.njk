@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="{{ site.lang }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% if title %}{{ title }} — {{ site.title }}{% else %}{{ site.title }}{% endif %}</title>
+    <meta name="description" content="{{ description or site.description }}" />
+    <meta name="color-scheme" content="light dark" />
+    {# Resolve a path prefix at runtime so the site works behind proxies that
+       serve files from a non-root URL (e.g. private preview deploys). For
+       Netlify / Vercel / a domain root, this is a no-op. #}
+    <script>
+      (function () {
+        // Compute the URL prefix the page is served under (for proxy previews).
+        // For a normal domain deploy this is empty and everything below is a no-op.
+        var path = location.pathname;
+        var pageUrl = {{ page.url | dump | safe }};
+        var idx = path.lastIndexOf(pageUrl);
+        var prefix = idx > 0 ? path.slice(0, idx) : '';
+        // Inject the stylesheet immediately so first paint is styled.
+        var l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = prefix + '/assets/css/main.css';
+        document.head.appendChild(l);
+        if (!prefix) return;
+        // Rewrite root-absolute URLs to include the prefix on DOM ready.
+        document.addEventListener('DOMContentLoaded', function () {
+          document.querySelectorAll('a[href^="/"], link[href^="/"], img[src^="/"], script[src^="/"]').forEach(function (el) {
+            var attr = (el.tagName === 'IMG' || el.tagName === 'SCRIPT') ? 'src' : 'href';
+            var v = el.getAttribute(attr);
+            if (v && !v.startsWith('//') && !v.startsWith(prefix)) {
+              el.setAttribute(attr, prefix + v);
+            }
+          });
+        });
+      })();
+    </script>
+    <noscript><link rel="stylesheet" href="/assets/css/main.css" /></noscript>
+    <link rel="alternate" type="application/atom+xml" href="/feed.xml" title="{{ site.title }}" />
+    {# Restrained, archival type: a workhorse serif for prose, a mono for chrome.
+       Loaded from Fontshare to avoid the most overexposed Google Fonts. #}
+    <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://api.fontshare.com/v2/css?f[]=jetbrains-mono@400,500&f[]=gambarino@400&f[]=switzer@400,500,600&display=swap"
+    />
+    <meta property="og:title" content="{% if title %}{{ title }} — {{ site.title }}{% else %}{{ site.title }}{% endif %}" />
+    <meta property="og:description" content="{{ description or site.description }}" />
+    <meta property="og:type" content="website" />
+  </head>
+  <body class="{{ bodyClass or '' }}">
+    <a class="skip-link" href="#main">Skip to content</a>
+    {% include "partials/header.njk" %}
+    <main id="main" class="site-main">
+      {{ content | safe }}
+    </main>
+    {% include "partials/footer.njk" %}
+  </body>
+</html>
