@@ -4,45 +4,38 @@ title: ""
 description: "Haha Systems Research"
 eleventyExcludeFromCollections: true
 ---
-<div class="home wrap">
-  <section class="home__hero" aria-labelledby="home-lede">
-    <p class="home__sub">haha-systems / index</p>
-    <h1 id="home-lede" class="home__lede">
-      <strong>Haha Systems</strong>
-    </h1>
-    <em class="home__section-title">All the world's a stage, and we are merely players.</em>
-    <p class="home__section-title">Research on intelligence, symbiosis, and the systems we build.</p>
-  </section>
-
-  <section class="home__sections" aria-label="Sections">
-    {% for s in site.sections %}
-      {% set entries = collections[s.slug] | sortByDateDesc %}
-      <article class="home__section">
-        <h2 class="home__section-title">
-          <a href="{{ ('/' + s.slug + '/') | url }}">{{ s.title }}</a>
-          <span class="home__count">{{ entries.length }}</span>
-        </h2>
-        <p class="home__section-blurb">{{ s.blurb }}</p>
-        <div class="home__recent">
-          {% if entries.length %}
-            {% for item in entries | limit(3) %}
-              <a href="{{ item.url | url }}">
-                <span>{{ item.data.date | readableDate }}</span>
-                &nbsp;·&nbsp;
-                <span>{{ item.data.title }}</span>
-              </a>
-            {% endfor %}
-          {% else %}
-            <span class="home__recent-empty">— empty</span>
-          {% endif %}
-        </div>
-      </article>
-    {% endfor %}
-  </section>
-
-  <p class="home__colophon">
-    Built in plain Markdown and Eleventy. No tracking. No newsletter. Updates appear
-    when there is something to record. Source organized by section; each entry is a
-    file on disk.
+<section aria-labelledby="home-lede">
+  <p class="font-mono text-sm uppercase tracking-widest text-neutral-600 dark:text-neutral-400">haha-systems / index</p>
+  <h1 id="home-lede" class="mt-5 max-w-4xl text-5xl font-semibold leading-tight md:text-7xl">
+    Haha Systems
+  </h1>
+  <p class="mt-5 max-w-2xl text-lg leading-relaxed text-neutral-700 dark:text-neutral-400">
+    Research on intelligence, symbiosis, and the systems we build.
   </p>
-</div>
+</section>
+
+<section class="mt-12 grid gap-px border border-neutral-900 bg-neutral-900 md:grid-cols-2 lg:grid-cols-3 dark:border-stone-50/30 dark:bg-stone-50/30" aria-label="Sections">
+  {% for s in site.sections %}
+    {% set entries = collections[s.slug] | sortByDateDesc %}
+    <article class="flex min-h-44 flex-col gap-3 bg-stone-50 p-5 dark:bg-neutral-950">
+      <h2 class="m-0 flex items-baseline gap-2 text-xl font-semibold">
+        <a class="no-underline hover:underline" href="{{ ('/' + s.slug + '/') | url }}">{{ s.title }}</a>
+        <span class="font-mono text-xs text-neutral-500 dark:text-neutral-500">{{ entries.length }}</span>
+      </h2>
+      <p class="m-0 text-sm leading-relaxed text-neutral-700 dark:text-neutral-400">{{ s.blurb }}</p>
+      <div class="mt-auto flex flex-col gap-1 font-mono text-sm text-neutral-600 dark:text-neutral-400">
+        {% if entries.length %}
+          {% for item in entries | limit(3) %}
+            <a class="no-underline hover:underline" href="{{ item.url | url }}">
+              <span>{{ item.data.date | readableDate }}</span>
+              <span aria-hidden="true"> · </span>
+              <span>{{ item.data.title }}</span>
+            </a>
+          {% endfor %}
+        {% else %}
+          <span class="text-neutral-500">— empty</span>
+        {% endif %}
+      </div>
+    </article>
+  {% endfor %}
+</section>

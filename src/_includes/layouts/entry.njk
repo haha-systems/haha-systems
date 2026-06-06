@@ -1,22 +1,22 @@
 ---
 layout: layouts/base.njk
 ---
-<article class="entry wrap">
-  <header class="entry__header">
-    <p class="entry__meta">
-      <a href="{{ ('/' + section + '/') | url }}" class="entry__section">{{ section }}</a>
+<article class="max-w-4xl">
+  <header>
+    <p class="m-0 flex flex-wrap gap-2 font-mono text-sm uppercase tracking-widest text-neutral-600 dark:text-neutral-400">
+      <a class="no-underline hover:underline" href="{{ ('/' + section + '/') | url }}">{{ section }}</a>
       {% if date %}
         <span aria-hidden="true">·</span>
         <time datetime="{{ page.date | isoDate }}">{{ page.date | readableDate }}</time>
       {% endif %}
     </p>
-    <h1 class="entry__title">{{ title }}</h1>
-    {% if summary %}<p class="entry__summary">{{ summary }}</p>{% endif %}
+    <h1 class="mt-3 text-4xl font-semibold leading-tight">{{ title }}</h1>
+    {% if summary %}<p class="mt-3 max-w-2xl leading-relaxed text-neutral-700 dark:text-neutral-400">{{ summary }}</p>{% endif %}
   </header>
-  <div class="prose">
+  <div class="prose mt-8">
     {{ content | safe }}
   </div>
-  <footer class="entry__footer">
-    <a href="{{ ('/' + section + '/') | url }}" class="entry__back">← Back to {{ section }}</a>
+  <footer class="mt-12 border-t border-neutral-900/15 pt-6 font-mono text-sm dark:border-stone-50/15">
+    <a class="text-neutral-600 no-underline hover:underline dark:text-neutral-400" href="{{ ('/' + section + '/') | url }}">← Back to {{ section }}</a>
   </footer>
 </article>
