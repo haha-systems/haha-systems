@@ -2,40 +2,47 @@
 layout: layouts/base.njk
 ---
 {% set entries = collections[section] %}
-<section class="section wrap">
-  <header class="section__header">
-    <p class="section__kicker">/ {{ section }}</p>
-    <h1 class="section__title">{{ title }}</h1>
-    {% if blurb %}<p class="section__blurb">{{ blurb }}</p>{% endif %}
+<section class="max-w-4xl">
+  <header class="mb-10">
+    <p class="m-0 font-mono text-sm uppercase tracking-widest text-neutral-600 dark:text-neutral-400">/ {{ section }}</p>
+    <h1 class="mt-3 text-4xl font-semibold leading-tight">{{ title }}</h1>
+    {% if blurb %}<p class="mt-3 max-w-2xl leading-relaxed text-neutral-700 dark:text-neutral-400">{{ blurb }}</p>{% endif %}
   </header>
 
   {% if content %}
-    <div class="prose section__intro">
+    <div class="prose mb-10">
       {{ content | safe }}
     </div>
   {% endif %}
 
   {% if entries and entries.length %}
-    <ol class="entry-list" reversed>
+    <ol class="divide-y divide-neutral-900/15 border border-neutral-900 dark:divide-stone-50/15 dark:border-stone-50/30" reversed>
       {% for item in entries %}
-        <li class="entry-list__item">
-          <a class="entry-list__link" href="{{ item.url | url }}">
-            <span class="entry-list__date">
+        <li>
+          <a
+            class="grid grid-cols-1 gap-1 px-4 py-3 no-underline hover:bg-neutral-50 sm:grid-cols-[7rem_1fr] sm:gap-4 dark:hover:bg-neutral-900/50"
+            href="{{ item.url | url }}"
+          >
+            <span class="font-mono text-sm text-neutral-600 dark:text-neutral-400">
               {% if item.data.date %}
                 <time datetime="{{ item.data.date | isoDate }}">{{ item.data.date | readableDate }}</time>
               {% else %}
                 <span aria-hidden="true">—</span>
               {% endif %}
             </span>
-            <span class="entry-list__title">{{ item.data.title }}</span>
-            {% if item.data.summary %}
-              <span class="entry-list__summary">{{ item.data.summary }}</span>
-            {% endif %}
+            <span>
+              <span class="block font-medium text-neutral-950 dark:text-stone-50">{{ item.data.title }}</span>
+              {% if item.data.summary %}
+                <span class="mt-1 block text-sm text-neutral-600 dark:text-neutral-400">{{ item.data.summary }}</span>
+              {% endif %}
+            </span>
           </a>
         </li>
       {% endfor %}
     </ol>
   {% else %}
-    <p class="section__empty">Nothing here yet.</p>
+    <p class="border border-neutral-900 px-4 py-8 text-center font-mono text-sm text-neutral-600 dark:border-stone-50/30 dark:text-neutral-400">
+      Nothing here yet.
+    </p>
   {% endif %}
 </section>

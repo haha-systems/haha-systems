@@ -1,24 +1,22 @@
 {% set currentSection = page.url.split('/')[1] %}
-<header class="site-header">
-  <div class="wrap site-header__inner">
-    <a class="site-id" href="{{ '/' | url }}" aria-label="Haha Systems — home">
+<header class="border-b border-neutral-900/15 dark:border-stone-50/15">
+  <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4">
+    <a
+      class="inline-flex items-center gap-3 text-lg font-semibold tracking-normal no-underline hover:underline"
+      href="{{ '/' | url }}"
+      aria-label="Haha Systems — home"
+    >
       {% include "partials/mark.njk" %}
-      <span class="site-id__text">
-        <span class="site-id__name">Haha Systems</span>
-        <span class="site-id__sub">Frontier research in intelligence</span>
-      </span>
+      <span>Haha Systems</span>
     </a>
-    <nav class="site-nav" aria-label="Primary">
-      <ul>
-        {% for s in site.sections %}
-          <li>
-            <a
-              href="{{ ('/' + s.slug + '/') | url }}"
-              {% if currentSection == s.slug %}aria-current="page"{% endif %}
-            >{{ s.title }}</a>
-          </li>
-        {% endfor %}
-      </ul>
+    <nav class="flex flex-wrap items-center gap-4 font-mono text-sm" aria-label="Primary">
+      {% for s in site.sections %}
+        <a
+          class="no-underline hover:underline{% if currentSection == s.slug %} font-semibold underline{% endif %}"
+          href="{{ ('/' + s.slug + '/') | url }}"
+          {% if currentSection == s.slug %}aria-current="page"{% endif %}
+        >{{ s.title }}</a>
+      {% endfor %}
     </nav>
   </div>
 </header>

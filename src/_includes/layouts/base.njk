@@ -37,21 +37,19 @@
     </script>
     <noscript><link rel="stylesheet" href="/assets/css/main.css" /></noscript>
     <link rel="alternate" type="application/atom+xml" href="/feed.xml" title="{{ site.title }}" />
-    {# Restrained, archival type: a workhorse serif for prose, a mono for chrome.
-       Loaded from Fontshare to avoid the most overexposed Google Fonts. #}
     <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://api.fontshare.com/v2/css?f[]=jetbrains-mono@400,500&f[]=gambarino@400&f[]=switzer@400,500,600&display=swap"
+      href="https://api.fontshare.com/v2/css?f[]=jetbrains-mono@400,500&display=swap"
     />
     <meta property="og:title" content="{% if title %}{{ title }} — {{ site.title }}{% else %}{{ site.title }}{% endif %}" />
     <meta property="og:description" content="{{ description or site.description }}" />
     <meta property="og:type" content="website" />
   </head>
-  <body class="{{ bodyClass or '' }}">
+  <body class="min-h-screen bg-stone-50 text-neutral-950 antialiased dark:bg-neutral-950 dark:text-stone-50">
     <a class="skip-link" href="#main">Skip to content</a>
     {% include "partials/header.njk" %}
-    <main id="main" class="site-main">
+    <main id="main" class="mx-auto max-w-6xl px-5 py-10">
       {{ content | safe }}
     </main>
     {% include "partials/footer.njk" %}
