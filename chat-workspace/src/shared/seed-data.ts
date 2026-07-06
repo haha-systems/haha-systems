@@ -142,10 +142,16 @@ export const seedMessages: MessageSummary[] = [
     blocks: [
       {
         type: "decision",
+        id: "77777777-7777-4777-8777-777777777701",
         kind: "pick_one",
         title: "pick one",
+        prompt: "Which direction should Ari build out?",
         status: "open",
-        options: ["Bold type, no image", "Product shot and short headline"]
+        options: ["Bold type, no image", "Product shot and short headline"],
+        updatedAt: "2026-07-06T09:41:00.000Z",
+        resolvedAt: null,
+        resolvedByMemberId: null,
+        result: null
       }
     ],
     mentions: [],

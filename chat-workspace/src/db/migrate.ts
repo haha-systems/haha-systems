@@ -238,14 +238,15 @@ export async function seedWorkspaceData(client: SqlClient): Promise<void> {
       schema_json,
       status,
       idempotency_key,
-      created_at
+      created_at,
+      updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, 'pick_one', 'pick one', $6, $7::jsonb, 'open', $8, $9)
+    VALUES ($1, $2, $3, $4, $5, 'pick_one', 'pick one', $6, $7::jsonb, 'open', $8, $9, $9)
     ON CONFLICT (workspace_id, idempotency_key) DO UPDATE SET
       prompt = EXCLUDED.prompt,
       schema_json = EXCLUDED.schema_json,
       status = EXCLUDED.status,
-      updated_at = now()
+      updated_at = EXCLUDED.updated_at
     `,
     [
       "77777777-7777-4777-8777-777777777701",
