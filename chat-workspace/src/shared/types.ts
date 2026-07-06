@@ -33,13 +33,18 @@ export interface MessageSummary {
   workspaceId: string;
   roomId: string;
   threadId: string | null;
+  parentMessageId: string | null;
   authorMemberId: string;
   authorKind: MemberKind;
   body: string;
   bodyFormat: "plain" | "markdown";
   blocks: Array<Record<string, unknown>>;
   mentions: string[];
+  sourceClientId: string | null;
+  editVersion: number;
   createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
 }
 
 export interface ActivitySummary {

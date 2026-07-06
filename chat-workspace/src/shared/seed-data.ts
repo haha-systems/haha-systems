@@ -98,32 +98,43 @@ export const seedMessages: MessageSummary[] = [
     workspaceId: seedWorkspace.id,
     roomId: seedRooms[0].id,
     threadId: null,
+    parentMessageId: null,
     authorMemberId: seedMembers[0].id,
     authorKind: "human",
     body: "Hero needs a pass before Friday. @Ari can you take it?",
     bodyFormat: "plain",
     blocks: [],
     mentions: [seedMembers[1].id],
-    createdAt: "2026-07-06T09:32:00.000Z"
+    sourceClientId: null,
+    editVersion: 1,
+    createdAt: "2026-07-06T09:32:00.000Z",
+    updatedAt: "2026-07-06T09:32:00.000Z",
+    deletedAt: null
   },
   {
     id: "44444444-4444-4444-8444-444444444402",
     workspaceId: seedWorkspace.id,
     roomId: seedRooms[0].id,
     threadId: "55555555-5555-4555-8555-555555555501",
+    parentMessageId: "44444444-4444-4444-8444-444444444401",
     authorMemberId: seedMembers[1].id,
     authorKind: "agent",
     body: "On it. I will thread the work here.",
     bodyFormat: "plain",
     blocks: [{ type: "progress", lines: ["Reviewing the launch brief", "Exploring two visual directions"] }],
     mentions: [],
-    createdAt: "2026-07-06T09:32:20.000Z"
+    sourceClientId: null,
+    editVersion: 1,
+    createdAt: "2026-07-06T09:32:20.000Z",
+    updatedAt: "2026-07-06T09:32:20.000Z",
+    deletedAt: null
   },
   {
     id: "44444444-4444-4444-8444-444444444403",
     workspaceId: seedWorkspace.id,
     roomId: seedRooms[0].id,
     threadId: "55555555-5555-4555-8555-555555555501",
+    parentMessageId: "44444444-4444-4444-8444-444444444401",
     authorMemberId: seedMembers[1].id,
     authorKind: "agent",
     body: "I have two viable directions. Which should I build out?",
@@ -138,20 +149,29 @@ export const seedMessages: MessageSummary[] = [
       }
     ],
     mentions: [],
-    createdAt: "2026-07-06T09:41:00.000Z"
+    sourceClientId: null,
+    editVersion: 1,
+    createdAt: "2026-07-06T09:41:00.000Z",
+    updatedAt: "2026-07-06T09:41:00.000Z",
+    deletedAt: null
   },
   {
     id: "44444444-4444-4444-8444-444444444404",
     workspaceId: seedWorkspace.id,
     roomId: seedRooms[3].id,
     threadId: null,
+    parentMessageId: null,
     authorMemberId: seedMembers[2].id,
     authorKind: "agent",
     body: "Migration sketch is ready to review whenever you want a deeper pass.",
     bodyFormat: "plain",
     blocks: [],
     mentions: [],
-    createdAt: "2026-07-06T10:03:00.000Z"
+    sourceClientId: null,
+    editVersion: 1,
+    createdAt: "2026-07-06T10:03:00.000Z",
+    updatedAt: "2026-07-06T10:03:00.000Z",
+    deletedAt: null
   }
 ];
 

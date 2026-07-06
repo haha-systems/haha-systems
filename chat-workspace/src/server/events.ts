@@ -30,10 +30,25 @@ export interface WorkspaceGatewayOptions {
   loadBootstrap(workspaceId: string): Promise<BootstrapPayload>;
 }
 
-export function createWorkspaceGateway(opts: WorkspaceGatewayOptions): WebSocketServer {
+export type WorkspaceGateway = WebSocketServer & {
+  publish(event: WorkspaceEvent): void;
+};
+
+export function createWorkspaceGateway(opts: WorkspaceGatewayOptions): WorkspaceGateway {
   const gateway = new WebSocketServer({ noServer: true });
+  const socketsByWorkspace = new Map<string, Set<WebSocket>>();
 
   gateway.on("connection", async (socket: WebSocket, request: IncomingMessage, workspaceId: string) => {
+    const sockets = socketsByWorkspace.get(workspaceId) ?? new Set<WebSocket>();
+    sockets.add(socket);
+    socketsByWorkspace.set(workspaceId, sockets);
+    socket.on("close", () => {
+      sockets.delete(socket);
+      if (sockets.size === 0) {
+        socketsByWorkspace.delete(workspaceId);
+      }
+    });
+
     const bootstrap = await opts.loadBootstrap(workspaceId);
     const readyEvent = createWorkspaceEvent(workspaceId, "connection.ready", {
       connectionId: randomUUID(),
@@ -44,7 +59,21 @@ export function createWorkspaceGateway(opts: WorkspaceGatewayOptions): WebSocket
     socket.send(JSON.stringify(readyEvent));
   });
 
-  return gateway;
+  const workspaceGateway = gateway as WorkspaceGateway;
+  workspaceGateway.publish = (event: WorkspaceEvent) => {
+    const sockets = socketsByWorkspace.get(event.workspaceId);
+    if (!sockets) {
+      return;
+    }
+    const encoded = JSON.stringify(event);
+    for (const socket of sockets) {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(encoded);
+      }
+    }
+  };
+
+  return workspaceGateway;
 }
 
 export function authenticateWorkspaceSocket(request: IncomingMessage): {

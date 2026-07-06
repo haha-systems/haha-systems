@@ -179,19 +179,28 @@ export async function seedWorkspaceData(client: SqlClient): Promise<void> {
         workspace_id,
         room_id,
         thread_id,
+        parent_message_id,
         author_member_id,
         author_kind,
         body,
         body_format,
         blocks_json,
         mentions_json,
-        created_at
+        source_client_id,
+        edit_version,
+        created_at,
+        updated_at,
+        deleted_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12, $13, $14, $15, $16)
       ON CONFLICT (id) DO UPDATE SET
         body = EXCLUDED.body,
         blocks_json = EXCLUDED.blocks_json,
         mentions_json = EXCLUDED.mentions_json,
+        parent_message_id = EXCLUDED.parent_message_id,
+        source_client_id = EXCLUDED.source_client_id,
+        edit_version = EXCLUDED.edit_version,
+        deleted_at = EXCLUDED.deleted_at,
         updated_at = now()
       `,
       [
@@ -199,13 +208,18 @@ export async function seedWorkspaceData(client: SqlClient): Promise<void> {
         message.workspaceId,
         message.roomId,
         message.threadId,
+        message.parentMessageId,
         message.authorMemberId,
         message.authorKind,
         message.body,
         message.bodyFormat,
         JSON.stringify(message.blocks),
         JSON.stringify(message.mentions),
-        message.createdAt
+        message.sourceClientId,
+        message.editVersion,
+        message.createdAt,
+        message.updatedAt,
+        message.deletedAt
       ]
     );
   }
