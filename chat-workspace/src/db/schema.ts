@@ -342,6 +342,41 @@ export const activityItems = pgTable(
   ]
 );
 
+export const miraMonitorStates = pgTable(
+  "mira_monitor_states",
+  {
+    id: uuid("id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    agentMemberId: uuid("agent_member_id").notNull().references(() => members.id),
+    enabled: boolean("enabled").default(true).notNull(),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    ...timestamps
+  },
+  (table) => [
+    uniqueIndex("mira_monitor_states_workspace_idx").on(table.workspaceId),
+    index("mira_monitor_states_agent_idx").on(table.workspaceId, table.agentMemberId)
+  ]
+);
+
+export const miraMonitorEvents = pgTable(
+  "mira_monitor_events",
+  {
+    id: uuid("id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    agentMemberId: uuid("agent_member_id").notNull().references(() => members.id),
+    eventKind: varchar("event_kind", { length: 80 }).notNull(),
+    severity: varchar("severity", { length: 40 }).default("info").notNull(),
+    summary: text("summary").notNull(),
+    metadataJson: jsonb("metadata_json").default({}).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index("mira_monitor_events_workspace_created_idx").on(table.workspaceId, table.createdAt),
+    index("mira_monitor_events_agent_created_idx").on(table.workspaceId, table.agentMemberId, table.createdAt)
+  ]
+);
+
 export const outboxEvents = pgTable(
   "outbox_events",
   {

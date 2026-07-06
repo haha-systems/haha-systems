@@ -8,12 +8,14 @@ import { seedMembers, seedWorkspace } from "../shared/seed-data.js";
 import { authenticateWorkspaceSocket, createWorkspaceGateway } from "./events.js";
 import {
   ChatRepositoryError,
+  createAgent,
   createArtifact,
   createDecisionBlock,
   deleteMessage,
   editMessage,
   getVisibleArtifact,
   getMessageLimit,
+  listAgentsForMember,
   listArtifactsForMember,
   listDecisionBlocks,
   listMembersForMember,
@@ -21,9 +23,11 @@ import {
   listRoomsForMember,
   listThreadMessages,
   loadBootstrap,
+  removeAgent,
   resolveDecisionBlock,
   sendRoomMessage,
-  sendThreadReply
+  sendThreadReply,
+  updateAgent
 } from "./repository.js";
 
 export interface ChatWorkspaceServer {
@@ -63,6 +67,9 @@ export async function createChatWorkspaceServer(
     return header ?? query ?? bodyMember ?? seedMembers[0].id;
   };
 
+  const objectBody = (value: unknown): Record<string, unknown> =>
+    value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
   app.get("/api/bootstrap", async (req, res, next) => {
     try {
       res.json(await loadBootstrap(client, seedWorkspace.id, currentMemberId(req)));
@@ -74,6 +81,111 @@ export async function createChatWorkspaceServer(
   app.get("/api/workspaces/:workspaceId/members", async (req, res, next) => {
     try {
       res.json({ members: await listMembersForMember(client, req.params.workspaceId, currentMemberId(req)) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workspaces/:workspaceId/agents", async (req, res, next) => {
+    try {
+      res.json({ agents: await listAgentsForMember(client, req.params.workspaceId, currentMemberId(req)) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/workspaces/:workspaceId/agents", async (req, res, next) => {
+    try {
+      const result = await createAgent(client, {
+        workspaceId: req.params.workspaceId,
+        createdByMemberId:
+          typeof req.body.createdByMemberId === "string" ? req.body.createdByMemberId : currentMemberId(req),
+        displayName: String(req.body.displayName ?? ""),
+        handle: String(req.body.handle ?? ""),
+        role: req.body.role === null || typeof req.body.role === "string" ? req.body.role : undefined,
+        avatarUrl: req.body.avatarUrl === null || typeof req.body.avatarUrl === "string" ? req.body.avatarUrl : undefined,
+        timezone: req.body.timezone === null || typeof req.body.timezone === "string" ? req.body.timezone : undefined,
+        adapterType: typeof req.body.adapterType === "string" ? req.body.adapterType : undefined,
+        model: typeof req.body.model === "string" ? req.body.model : undefined,
+        instructionsRef:
+          req.body.instructionsRef === null || typeof req.body.instructionsRef === "string"
+            ? req.body.instructionsRef
+            : undefined,
+        capabilities: objectBody(req.body.capabilities),
+        budgetPolicy: objectBody(req.body.budgetPolicy),
+        isEnabled: typeof req.body.isEnabled === "boolean" ? req.body.isEnabled : undefined
+      });
+      for (const event of result.events) {
+        gateway.publish(event);
+      }
+      res.status(201).json({ agent: result.agent });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/workspaces/:workspaceId/agents/:memberId", async (req, res, next) => {
+    try {
+      const result = await updateAgent(client, {
+        workspaceId: req.params.workspaceId,
+        memberId: req.params.memberId,
+        updatedByMemberId:
+          typeof req.body.updatedByMemberId === "string" ? req.body.updatedByMemberId : currentMemberId(req),
+        displayName: typeof req.body.displayName === "string" ? req.body.displayName : undefined,
+        handle: typeof req.body.handle === "string" ? req.body.handle : undefined,
+        role: req.body.role === null || typeof req.body.role === "string" ? req.body.role : undefined,
+        avatarUrl: req.body.avatarUrl === null || typeof req.body.avatarUrl === "string" ? req.body.avatarUrl : undefined,
+        timezone: req.body.timezone === null || typeof req.body.timezone === "string" ? req.body.timezone : undefined,
+        adapterType: typeof req.body.adapterType === "string" ? req.body.adapterType : undefined,
+        model: typeof req.body.model === "string" ? req.body.model : undefined,
+        instructionsRef:
+          req.body.instructionsRef === null || typeof req.body.instructionsRef === "string"
+            ? req.body.instructionsRef
+            : undefined,
+        capabilities:
+          req.body.capabilities && typeof req.body.capabilities === "object" && !Array.isArray(req.body.capabilities)
+            ? req.body.capabilities
+            : undefined,
+        budgetPolicy:
+          req.body.budgetPolicy && typeof req.body.budgetPolicy === "object" && !Array.isArray(req.body.budgetPolicy)
+            ? req.body.budgetPolicy
+            : undefined,
+        isEnabled: typeof req.body.isEnabled === "boolean" ? req.body.isEnabled : undefined
+      });
+      for (const event of result.events) {
+        gateway.publish(event);
+      }
+      res.json({ agent: result.agent });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/workspaces/:workspaceId/agents/:memberId/reactivate", async (req, res, next) => {
+    try {
+      const result = await updateAgent(client, {
+        workspaceId: req.params.workspaceId,
+        memberId: req.params.memberId,
+        updatedByMemberId:
+          typeof req.body.updatedByMemberId === "string" ? req.body.updatedByMemberId : currentMemberId(req),
+        isEnabled: true
+      });
+      for (const event of result.events) {
+        gateway.publish(event);
+      }
+      res.json({ agent: result.agent });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/workspaces/:workspaceId/agents/:memberId", async (req, res, next) => {
+    try {
+      const result = await removeAgent(client, req.params.workspaceId, req.params.memberId, currentMemberId(req));
+      for (const event of result.events) {
+        gateway.publish(event);
+      }
+      res.json({ agent: result.agent, historyPreserved: true });
     } catch (error) {
       next(error);
     }

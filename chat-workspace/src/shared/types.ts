@@ -18,6 +18,27 @@ export interface MemberSummary {
   handle: string;
   role: string | null;
   presenceState: PresenceState;
+  isEnabled: boolean;
+}
+
+export interface AgentProfileSummary {
+  id: string;
+  workspaceId: string;
+  memberId: string;
+  adapterType: string;
+  model: string;
+  instructionsRef: string | null;
+  capabilities: Record<string, unknown>;
+  budgetPolicy: Record<string, unknown>;
+  isEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentSummary {
+  member: MemberSummary;
+  profile: AgentProfileSummary;
+  dmRoomId: string | null;
 }
 
 export interface RoomSummary {
@@ -133,6 +154,27 @@ export interface ActivitySummary {
   sortAt: string;
 }
 
+export type MiraMonitorHealth = "active" | "empty" | "disabled" | "error";
+
+export interface MiraMonitorActivitySummary {
+  id: string;
+  kind: "check" | "action" | "note";
+  summary: string;
+  severity: "info" | "warning" | "error";
+  createdAt: string;
+}
+
+export interface MiraMonitorSummary {
+  workspaceId: string;
+  agentMemberId: string;
+  enabled: boolean;
+  health: MiraMonitorHealth;
+  lastCheckedAt: string | null;
+  errorMessage: string | null;
+  lastHourActivity: MiraMonitorActivitySummary[];
+  updatedAt: string;
+}
+
 export interface ThreadStateSummary {
   id: string;
   workspaceId: string;
@@ -151,6 +193,7 @@ export interface BootstrapPayload {
   artifacts: ArtifactSummary[];
   activity: ActivitySummary[];
   threadStates: ThreadStateSummary[];
+  miraMonitor: MiraMonitorSummary;
   eventToken: string;
 }
 

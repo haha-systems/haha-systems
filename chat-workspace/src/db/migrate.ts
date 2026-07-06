@@ -57,6 +57,8 @@ export async function applyMigrations(client: SqlClient): Promise<MigrationResul
 }
 
 export async function seedWorkspaceData(client: SqlClient): Promise<void> {
+  const miraMonitor = seedMembers.find((member) => member.handle === "mira-monitor");
+
   await client.query(
     `
     INSERT INTO workspaces(id, slug, name)
@@ -299,5 +301,65 @@ export async function seedWorkspaceData(client: SqlClient): Promise<void> {
         item.summary
       ]
     );
+  }
+
+  if (miraMonitor) {
+    await client.query(
+      `
+      INSERT INTO mira_monitor_states(id, workspace_id, agent_member_id, enabled, last_checked_at)
+      VALUES ($1, $2, $3, true, $4)
+      ON CONFLICT (workspace_id) DO UPDATE SET
+        agent_member_id = EXCLUDED.agent_member_id,
+        updated_at = now()
+      `,
+      [
+        "12121212-1212-4121-8121-121212121201",
+        seedWorkspace.id,
+        miraMonitor.id,
+        "2026-07-06T21:45:00.000Z"
+      ]
+    );
+
+    const miraEvents = [
+      {
+        id: "12121212-1212-4121-8121-121212121301",
+        kind: "check",
+        severity: "info",
+        summary: "Checked open decisions and active agent sessions.",
+        createdAt: "2026-07-06T21:45:00.000Z"
+      },
+      {
+        id: "12121212-1212-4121-8121-121212121302",
+        kind: "action",
+        severity: "info",
+        summary: "Cancelled queued wake for disabled agent.",
+        createdAt: "2026-07-06T21:48:00.000Z"
+      },
+      {
+        id: "12121212-1212-4121-8121-121212121303",
+        kind: "note",
+        severity: "warning",
+        summary: "Workspace idled for 18 minutes; no monitor actions required.",
+        createdAt: "2026-07-06T21:54:00.000Z"
+      }
+    ];
+    for (const event of miraEvents) {
+      await client.query(
+        `
+        INSERT INTO mira_monitor_events(id, workspace_id, agent_member_id, event_kind, severity, summary, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (id) DO NOTHING
+        `,
+        [
+          event.id,
+          seedWorkspace.id,
+          miraMonitor.id,
+          event.kind,
+          event.severity,
+          event.summary,
+          event.createdAt
+        ]
+      );
+    }
   }
 }

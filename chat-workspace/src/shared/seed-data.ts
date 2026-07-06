@@ -22,7 +22,8 @@ export const seedMembers: MemberSummary[] = [
     displayName: "Mira",
     handle: "mira",
     role: "You",
-    presenceState: "idle"
+    presenceState: "idle",
+    isEnabled: true
   },
   {
     id: "22222222-2222-4222-8222-222222222202",
@@ -31,7 +32,8 @@ export const seedMembers: MemberSummary[] = [
     displayName: "Ari",
     handle: "ari",
     role: "Designer",
-    presenceState: "working"
+    presenceState: "working",
+    isEnabled: true
   },
   {
     id: "22222222-2222-4222-8222-222222222203",
@@ -40,7 +42,8 @@ export const seedMembers: MemberSummary[] = [
     displayName: "Tau",
     handle: "tau",
     role: "Engineer",
-    presenceState: "idle"
+    presenceState: "idle",
+    isEnabled: true
   },
   {
     id: "22222222-2222-4222-8222-222222222204",
@@ -49,7 +52,18 @@ export const seedMembers: MemberSummary[] = [
     displayName: "Atlas",
     handle: "atlas",
     role: "Lead",
-    presenceState: "waiting"
+    presenceState: "waiting",
+    isEnabled: true
+  },
+  {
+    id: "22222222-2222-4222-8222-222222222205",
+    workspaceId: seedWorkspace.id,
+    kind: "agent",
+    displayName: "Mira Monitor",
+    handle: "mira-monitor",
+    role: "Workspace monitor",
+    presenceState: "idle",
+    isEnabled: true
   }
 ];
 
@@ -89,6 +103,15 @@ export const seedRooms: RoomSummary[] = [
     topic: "1:1 with Tau",
     unreadCount: 1,
     memberIds: [seedMembers[0].id, seedMembers[2].id]
+  },
+  {
+    id: "33333333-3333-4333-8333-333333333305",
+    workspaceId: seedWorkspace.id,
+    kind: "dm",
+    name: "Mira Monitor",
+    topic: "Workspace monitoring status",
+    unreadCount: 0,
+    memberIds: [seedMembers[0].id, seedMembers[4].id]
   }
 ];
 
