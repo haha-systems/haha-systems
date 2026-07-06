@@ -20,6 +20,7 @@ if (!root) {
 }
 
 type ContextMode = "thread" | "roster" | "activity";
+type ConnectionState = "connecting" | "online" | "reconnecting" | "offline";
 type SendState = "idle" | "sending" | "failed";
 
 interface ThreadSummary {
@@ -69,21 +70,42 @@ function useBootstrap(): {
 function App() {
   const { data, error } = useBootstrap();
   const [selectedRoomId, setSelectedRoomId] = React.useState<string | null>(null);
+  const [rooms, setRooms] = React.useState<RoomSummary[]>([]);
+  const [members, setMembers] = React.useState<MemberSummary[]>([]);
   const [messages, setMessages] = React.useState<MessageSummary[]>([]);
   const [artifacts, setArtifacts] = React.useState<ArtifactSummary[]>([]);
-  const [eventState, setEventState] = React.useState("connecting");
+  const [activity, setActivity] = React.useState<ActivitySummary[]>([]);
+  const [threadStates, setThreadStates] = React.useState<ThreadStateSummary[]>([]);
+  const [eventState, setEventState] = React.useState<ConnectionState>("connecting");
   const [contextMode, setContextMode] = React.useState<ContextMode>("roster");
   const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
   const [mobileTab, setMobileTab] = React.useState<"chats" | "activity" | "roster">("chats");
   const [announce, setAnnounce] = React.useState("");
+  const refreshWorkspaceSnapshot = React.useCallback(async (): Promise<void> => {
+    const response = await fetch("/api/bootstrap");
+    if (!response.ok) {
+      throw new Error(`Bootstrap refresh failed with ${response.status}`);
+    }
+    const payload = (await response.json()) as BootstrapPayload;
+    setRooms(payload.rooms);
+    setMembers(payload.members);
+    setMessages(payload.messages);
+    setArtifacts(payload.artifacts);
+    setActivity(payload.activity);
+    setThreadStates(payload.threadStates);
+  }, []);
 
   React.useEffect(() => {
     if (!data) {
       return;
     }
     setSelectedRoomId((current) => current ?? data.rooms[0]?.id ?? null);
+    setRooms(data.rooms);
+    setMembers(data.members);
     setMessages(data.messages);
     setArtifacts(data.artifacts);
+    setActivity(data.activity);
+    setThreadStates(data.threadStates);
   }, [data]);
 
   React.useEffect(() => {
@@ -98,8 +120,11 @@ function App() {
 
     socket.addEventListener("message", (event) => {
       const parsed = JSON.parse(String(event.data)) as WorkspaceEvent;
-      setEventState(parsed.type === "connection.ready" ? "live" : `${parsed.type} #${parsed.sequence}`);
+      setEventState("online");
       applyWorkspaceEvent(parsed, setMessages, setArtifacts);
+      if (shouldRefreshWorkspaceSnapshot(parsed.type)) {
+        void refreshWorkspaceSnapshot().catch(() => setEventState("reconnecting"));
+      }
       if (parsed.type === "message.created") {
         const message = parsed.payload.message as MessageSummary | undefined;
         setAnnounce(message ? `New message: ${message.body}` : "New message received");
@@ -109,12 +134,12 @@ function App() {
         setAnnounce(artifact ? `New artifact: ${artifact.title}` : "New artifact received");
       }
     });
-    socket.addEventListener("open", () => setEventState("live"));
+    socket.addEventListener("open", () => setEventState("online"));
     socket.addEventListener("close", () => setEventState("reconnecting"));
     socket.addEventListener("error", () => setEventState("offline"));
 
     return () => socket.close();
-  }, [data]);
+  }, [data, refreshWorkspaceSnapshot]);
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -132,7 +157,7 @@ function App() {
       }
       if (event.key.toLowerCase() === "t") {
         const firstThread = selectedRoomId
-          ? getThreads(messages, data?.threadStates ?? []).find((thread) => thread.parent.roomId === selectedRoomId)
+          ? getThreads(messages, threadStates).find((thread) => thread.parent.roomId === selectedRoomId)
           : null;
         if (firstThread) {
           openThread(firstThread.id);
@@ -141,7 +166,7 @@ function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [data, messages, selectedRoomId]);
+  }, [messages, selectedRoomId, threadStates]);
 
   if (error) {
     return <div className="loading">Could not load workspace: {error}</div>;
@@ -151,10 +176,10 @@ function App() {
     return <div className="loading">Loading workspace...</div>;
   }
 
-  const currentMember = data.members.find((member) => member.kind === "human") ?? data.members[0];
+  const currentMember = members.find((member) => member.kind === "human") ?? members[0];
   const workspaceId = data.workspace.id;
-  const selectedRoom = data.rooms.find((room) => room.id === selectedRoomId) ?? data.rooms[0];
-  const threads = getThreads(messages, data.threadStates);
+  const selectedRoom = rooms.find((room) => room.id === selectedRoomId) ?? rooms[0];
+  const threads = getThreads(messages, threadStates);
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
   const roomMessages = messages.filter(
     (message) => message.roomId === selectedRoom?.id && !message.parentMessageId && !message.deletedAt
@@ -228,18 +253,30 @@ function App() {
 
     const resolved = (await response.json()) as { message: MessageSummary };
     mergeMessage(setMessages, resolved.message);
+    await refreshWorkspaceSnapshot();
     setAnnounce("Decision submitted");
+  }
+
+  function askForArtifactChanges(artifact: ArtifactSummary): void {
+    const targetThreadId = artifact.threadId ?? threads.find((thread) => thread.parent.id === artifact.messageId)?.id;
+    if (targetThreadId) {
+      openThread(targetThreadId);
+      window.setTimeout(() => fillComposerForArtifactChanges(artifact), 0);
+    } else {
+      fillComposerForArtifactChanges(artifact);
+    }
+    setAnnounce(`Composer ready for changes to ${artifact.title}`);
   }
 
   return (
     <main className="workspace-shell">
       <LeftRail
         workspaceName={data.workspace.name}
-        rooms={data.rooms}
-        members={data.members}
+        rooms={rooms}
+        members={members}
         selectedRoomId={selectedRoom?.id ?? ""}
         onSelectRoom={selectRoom}
-        activity={data.activity}
+        activity={activity}
         onOpenActivity={() => {
           setContextMode("activity");
           setMobileTab("activity");
@@ -250,7 +287,7 @@ function App() {
         room={selectedRoom}
         messages={roomMessages}
         artifacts={artifacts}
-        members={data.members}
+        members={members}
         eventState={eventState}
         threads={threads}
         currentMember={currentMember}
@@ -258,13 +295,14 @@ function App() {
         onToggleRoster={() => setContextMode((mode) => (mode === "roster" ? "activity" : "roster"))}
         onSendMessage={(body, mentions) => selectedRoom && sendMessage(selectedRoom.id, body, mentions)}
         onResolveDecision={resolveDecisionBlock}
+        onAskForChanges={askForArtifactChanges}
       />
       <ContextPane
         mode={contextMode}
         selectedThread={selectedThread}
         artifacts={artifacts}
-        members={data.members}
-        activity={data.activity}
+        members={members}
+        activity={activity}
         currentMember={currentMember}
         room={selectedRoom}
         onModeChange={setContextMode}
@@ -276,10 +314,11 @@ function App() {
           return sendMessage(selectedThread.parent.roomId, body, mentions, selectedThread.parent.id);
         }}
         onResolveDecision={resolveDecisionBlock}
+        onAskForChanges={askForArtifactChanges}
       />
       <MobileTabs
         active={mobileTab}
-        actionNeeded={getActionNeededCount(data.activity, currentMember?.id ?? null)}
+        actionNeeded={getActionNeededCount(activity, currentMember?.id ?? null)}
         onSelect={(tab) => {
           setMobileTab(tab);
           if (tab === "activity") {
@@ -313,6 +352,18 @@ function applyWorkspaceEvent(
       mergeArtifact(setArtifacts, artifact);
     }
   }
+}
+
+function shouldRefreshWorkspaceSnapshot(eventType: string): boolean {
+  return [
+    "artifact.created",
+    "decision.created",
+    "decision.resolved",
+    "message.updated",
+    "session.created",
+    "session.updated",
+    "wake.queued"
+  ].includes(eventType);
 }
 
 function mergeMessage(
@@ -528,6 +579,7 @@ function ConversationPane(props: {
   onToggleRoster(): void;
   onSendMessage(body: string, mentions: string[]): Promise<void>;
   onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
+  onAskForChanges(artifact: ArtifactSummary): void;
 }) {
   const streamRef = React.useRef<HTMLDivElement | null>(null);
   const title = props.room?.kind === "channel" ? `# ${props.room.name}` : `DM · ${props.room?.name ?? ""}`;
@@ -545,13 +597,14 @@ function ConversationPane(props: {
           <p>{props.room?.topic ?? "Workspace conversation"}</p>
         </div>
         <div className="header-actions">
-          <span className={`socket-pill ${props.eventState === "offline" ? "offline" : ""}`}>{props.eventState}</span>
+          <ConnectionNotice state={props.eventState} />
           <button type="button" aria-label="Search">⌕</button>
           <button type="button" aria-label="Toggle roster and activity" onClick={props.onToggleRoster}>☰</button>
         </div>
       </header>
 
       <div className="message-stream" ref={streamRef}>
+        {props.messages.length === 0 ? <EmptyConversation room={props.room} /> : null}
         {props.messages.map((message) => {
           const author = props.members.find((member) => member.id === message.authorMemberId);
           const thread = props.threads.find((candidate) => candidate.parent.id === message.id);
@@ -565,6 +618,7 @@ function ConversationPane(props: {
               thread={thread}
               onOpenThread={props.onOpenThread}
               onResolveDecision={props.onResolveDecision}
+              onAskForChanges={props.onAskForChanges}
             />
           );
         })}
@@ -590,6 +644,7 @@ function MessageRow(props: {
   thread: ThreadSummary | undefined;
   onOpenThread(threadId: string): void;
   onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
+  onAskForChanges(artifact: ArtifactSummary): void;
 }) {
   const initials = props.author?.displayName.slice(0, 2).toUpperCase() ?? "--";
   const time = formatTime(props.message.createdAt);
@@ -606,12 +661,33 @@ function MessageRow(props: {
         </div>
         <p>{renderMessageText(props.message.body, props.members)}</p>
         {props.message.blocks.map((block, index) => (
-          <MessageBlock block={block} key={index} onResolveDecision={props.onResolveDecision} />
+          <MessageBlock block={block} key={index} members={props.members} onResolveDecision={props.onResolveDecision} />
         ))}
-        <ArtifactList artifacts={props.artifacts} compact={false} />
+        <ArtifactList artifacts={props.artifacts} compact={false} onAskForChanges={props.onAskForChanges} />
         {props.thread ? <ThreadAnchor thread={props.thread} onOpenThread={props.onOpenThread} /> : null}
       </div>
     </article>
+  );
+}
+
+function ConnectionNotice(props: { state: string }) {
+  if (props.state !== "offline" && props.state !== "reconnecting") {
+    return null;
+  }
+  return <span className={`connection-pill ${props.state}`}>{props.state === "offline" ? "Offline" : "Reconnecting"}</span>;
+}
+
+function EmptyConversation(props: { room: RoomSummary | undefined }) {
+  const isDm = props.room?.kind === "dm";
+  return (
+    <section className="empty-conversation" aria-label="No messages">
+      <strong>{isDm ? `No direct messages with ${props.room?.name ?? "this teammate"} yet` : "No messages yet"}</strong>
+      <p>
+        {isDm
+          ? "Start a new 1:1 below, or keep shared launch work in the main channel."
+          : "Start the conversation below."}
+      </p>
+    </section>
   );
 }
 
@@ -628,6 +704,7 @@ function ThreadAnchor(props: { thread: ThreadSummary; onOpenThread(threadId: str
 
 function MessageBlock(props: {
   block: Record<string, unknown>;
+  members: MemberSummary[];
   onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
 }) {
   const [choice, setChoice] = React.useState("");
@@ -670,7 +747,7 @@ function MessageBlock(props: {
       return (
         <div className="decision-block resolved" role="group" aria-label="Decision resolved">
           <div className="decision-title">✓ Decision resolved</div>
-          <p>{decisionReceiptText(props.block)}</p>
+          <DecisionReceipt block={props.block} members={props.members} />
         </div>
       );
     }
@@ -737,26 +814,64 @@ function MessageBlock(props: {
   return null;
 }
 
-function decisionReceiptText(block: Record<string, unknown>): string {
-  const result = block.result && typeof block.result === "object" && !Array.isArray(block.result)
-    ? (block.result as Record<string, unknown>)
-    : {};
-  if (result.decision === "approved") {
-    return "Approved.";
-  }
-  if (result.decision === "rejected") {
-    return "Rejected.";
-  }
-  if (typeof result.answer === "string") {
-    return `Answered: ${result.answer}`;
-  }
-  if (typeof result.choice === "string") {
-    return `Chose ${result.choice}.`;
-  }
-  return "Decision receipt recorded.";
+function DecisionReceipt(props: { block: Record<string, unknown>; members: MemberSummary[] }) {
+  const result = getDecisionResult(props.block);
+  const resolverId = typeof props.block.resolvedByMemberId === "string" ? props.block.resolvedByMemberId : null;
+  const resolver = resolverId ? props.members.find((member) => member.id === resolverId) : null;
+  const resolvedAt = typeof props.block.resolvedAt === "string" ? props.block.resolvedAt : null;
+  const note = typeof result.note === "string" ? result.note.trim() : "";
+
+  return (
+    <dl className="decision-receipt">
+      <div>
+        <dt>Choice</dt>
+        <dd>{decisionChoiceText(result)}</dd>
+      </div>
+      <div>
+        <dt>Resolver</dt>
+        <dd>{resolver?.displayName ?? "Workspace"}</dd>
+      </div>
+      <div>
+        <dt>Time</dt>
+        <dd>{resolvedAt ? formatTime(resolvedAt) : "Recorded"}</dd>
+      </div>
+      {note ? (
+        <div>
+          <dt>Note</dt>
+          <dd>{note}</dd>
+        </div>
+      ) : null}
+    </dl>
+  );
 }
 
-function ArtifactList(props: { artifacts: ArtifactSummary[]; compact: boolean }) {
+function getDecisionResult(block: Record<string, unknown>): Record<string, unknown> {
+  return block.result && typeof block.result === "object" && !Array.isArray(block.result)
+    ? (block.result as Record<string, unknown>)
+    : {};
+}
+
+function decisionChoiceText(result: Record<string, unknown>): string {
+  if (result.decision === "approved") {
+    return "Approved";
+  }
+  if (result.decision === "rejected") {
+    return "Rejected";
+  }
+  if (typeof result.answer === "string") {
+    return result.answer;
+  }
+  if (typeof result.choice === "string") {
+    return result.choice;
+  }
+  return "Recorded";
+}
+
+function ArtifactList(props: {
+  artifacts: ArtifactSummary[];
+  compact: boolean;
+  onAskForChanges(artifact: ArtifactSummary): void;
+}) {
   if (props.artifacts.length === 0) {
     return null;
   }
@@ -764,13 +879,13 @@ function ArtifactList(props: { artifacts: ArtifactSummary[]; compact: boolean })
   return (
     <div className={`artifact-list ${props.compact ? "compact" : ""}`} aria-label="Artifacts">
       {props.artifacts.map((artifact) => (
-        <ArtifactPreviewCard artifact={artifact} key={artifact.id} />
+        <ArtifactPreviewCard artifact={artifact} key={artifact.id} onAskForChanges={props.onAskForChanges} />
       ))}
     </div>
   );
 }
 
-function ArtifactPreviewCard(props: { artifact: ArtifactSummary }) {
+function ArtifactPreviewCard(props: { artifact: ArtifactSummary; onAskForChanges(artifact: ArtifactSummary): void }) {
   const { artifact } = props;
   const title = artifact.title || "Untitled artifact";
 
@@ -783,6 +898,7 @@ function ArtifactPreviewCard(props: { artifact: ArtifactSummary }) {
           <span>{artifact.kind}</span>
         </div>
         <ArtifactBody artifact={artifact} />
+        <ArtifactActions artifact={artifact} onAskForChanges={props.onAskForChanges} />
         <div className="artifact-meta">
           {artifact.mimeType ? <span>{artifact.mimeType}</span> : null}
           {artifact.preview.sizeBytes !== undefined ? <span>{formatBytes(artifact.preview.sizeBytes)}</span> : null}
@@ -791,6 +907,48 @@ function ArtifactPreviewCard(props: { artifact: ArtifactSummary }) {
       </div>
     </article>
   );
+}
+
+function ArtifactActions(props: { artifact: ArtifactSummary; onAskForChanges(artifact: ArtifactSummary): void }) {
+  const href = artifactHref(props.artifact);
+  const canAsk = Boolean(props.artifact.threadId || props.artifact.messageId);
+
+  async function copyArtifactReference(): Promise<void> {
+    const text = href ?? props.artifact.preview.excerpt ?? props.artifact.preview.description ?? props.artifact.title;
+    await navigator.clipboard?.writeText(text);
+  }
+
+  return (
+    <div className="artifact-actions" aria-label={`Actions for ${props.artifact.title}`}>
+      {href ? (
+        <a href={href} target="_blank" rel="noreferrer">Open</a>
+      ) : (
+        <button type="button" disabled>Open</button>
+      )}
+      {href ? (
+        <a href={href} download={props.artifact.preview.fileName ?? props.artifact.title}>Download</a>
+      ) : (
+        <button type="button" disabled>Download</button>
+      )}
+      <button type="button" onClick={() => void copyArtifactReference()}>Copy</button>
+      {canAsk ? (
+        <button type="button" onClick={() => props.onAskForChanges(props.artifact)}>Ask for changes</button>
+      ) : null}
+    </div>
+  );
+}
+
+function fillComposerForArtifactChanges(artifact: ArtifactSummary): void {
+  window.dispatchEvent(
+    new CustomEvent("chat-workspace:artifact-change-request", {
+      detail: { title: artifact.title }
+    })
+  );
+  document.querySelector<HTMLInputElement>("[data-composer-input]")?.focus();
+}
+
+function artifactHref(artifact: ArtifactSummary): string | null {
+  return safeHref(artifact.preview.url ?? artifact.preview.imageUrl ?? artifact.externalUrl);
 }
 
 function ArtifactBody(props: { artifact: ArtifactSummary }) {
@@ -872,6 +1030,7 @@ function ContextPane(props: {
   onJumpToRoom(roomId: string): void;
   onSendThreadReply(body: string, mentions: string[]): Promise<void>;
   onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
+  onAskForChanges(artifact: ArtifactSummary): void;
 }) {
   const agents = props.members.filter((member) => member.kind === "agent");
   const humans = props.members.filter((member) => member.kind === "human");
@@ -892,6 +1051,7 @@ function ContextPane(props: {
           room={props.room}
           onSendThreadReply={props.onSendThreadReply}
           onResolveDecision={props.onResolveDecision}
+          onAskForChanges={props.onAskForChanges}
         />
       ) : null}
 
@@ -918,6 +1078,7 @@ function ThreadPanel(props: {
   room: RoomSummary | undefined;
   onSendThreadReply(body: string, mentions: string[]): Promise<void>;
   onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
+  onAskForChanges(artifact: ArtifactSummary): void;
 }) {
   if (!props.thread) {
     return (
@@ -949,7 +1110,9 @@ function ThreadPanel(props: {
               message={message}
               artifacts={props.artifacts.filter((artifact) => artifact.messageId === message.id)}
               author={author}
+              members={props.members}
               onResolveDecision={props.onResolveDecision}
+              onAskForChanges={props.onAskForChanges}
             />
           );
         })}
@@ -967,7 +1130,9 @@ function CompactMessage(props: {
   message: MessageSummary;
   artifacts: ArtifactSummary[];
   author: MemberSummary | undefined;
+  members: MemberSummary[];
   onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
+  onAskForChanges(artifact: ArtifactSummary): void;
 }) {
   return (
     <article className="compact-message">
@@ -978,9 +1143,9 @@ function CompactMessage(props: {
       </div>
       <p>{props.message.body}</p>
       {props.message.blocks.map((block, index) => (
-        <MessageBlock block={block} key={index} onResolveDecision={props.onResolveDecision} />
+        <MessageBlock block={block} key={index} members={props.members} onResolveDecision={props.onResolveDecision} />
       ))}
-      <ArtifactList artifacts={props.artifacts} compact />
+      <ArtifactList artifacts={props.artifacts} compact onAskForChanges={props.onAskForChanges} />
     </article>
   );
 }
@@ -1073,6 +1238,17 @@ function Composer(props: {
         .filter((member) => member.handle.toLowerCase().startsWith(mention.query.toLowerCase()))
         .slice(0, 5)
     : [];
+
+  React.useEffect(() => {
+    const onArtifactChangeRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ title?: string }>).detail;
+      const title = detail?.title ?? "this artifact";
+      setValue((current) => current || `Ask for changes on ${title}: `);
+      setSendState("idle");
+    };
+    window.addEventListener("chat-workspace:artifact-change-request", onArtifactChangeRequest);
+    return () => window.removeEventListener("chat-workspace:artifact-change-request", onArtifactChangeRequest);
+  }, []);
 
   async function submit(): Promise<void> {
     const trimmed = value.trim();
