@@ -1057,10 +1057,9 @@ export async function createDecisionBlock(
     await client.query(
       `
       INSERT INTO activity_items(
-        id, workspace_id, room_id, thread_id, subject_kind, subject_id, actor_member_id, action_owner_member_id,
-        state, sort_at, summary
+        id, workspace_id, room_id, thread_id, subject_kind, subject_id, actor_member_id, state, sort_at, summary
       )
-      VALUES ($1, $2, $3, $4, 'decision', $5, $6, NULL, 'action_needed', now(), $7)
+      VALUES ($1, $2, $3, $4, 'decision', $5, $6, 'action_needed', now(), $7)
       ON CONFLICT (id) DO NOTHING
       `,
       [
