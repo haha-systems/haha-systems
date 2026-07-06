@@ -184,6 +184,7 @@ export const seedActivity: ActivitySummary[] = [
     subjectKind: "decision",
     subjectId: "77777777-7777-4777-8777-777777777701",
     actorMemberId: seedMembers[1].id,
+    actionOwnerMemberId: seedMembers[0].id,
     state: "action_needed",
     summary: "Ari is waiting for a hero direction",
     sortAt: "2026-07-06T09:41:00.000Z"
@@ -196,6 +197,7 @@ export const seedActivity: ActivitySummary[] = [
     subjectKind: "artifact",
     subjectId: "88888888-8888-4888-8888-888888888801",
     actorMemberId: seedMembers[2].id,
+    actionOwnerMemberId: null,
     state: "recently_done",
     summary: "Tau posted a migration sketch",
     sortAt: "2026-07-06T10:03:00.000Z"

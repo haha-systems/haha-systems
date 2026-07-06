@@ -193,6 +193,22 @@ export const decisionBlocks = pgTable(
   ]
 );
 
+export const decisionBlockEvents = pgTable(
+  "decision_block_events",
+  {
+    id: uuid("id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    decisionBlockId: uuid("decision_block_id").notNull().references(() => decisionBlocks.id, { onDelete: "cascade" }),
+    eventType: varchar("event_type", { length: 80 }).notNull(),
+    actorMemberId: uuid("actor_member_id").references(() => members.id),
+    payloadJson: jsonb("payload_json").default({}).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index("decision_block_events_block_created_idx").on(table.decisionBlockId, table.createdAt)
+  ]
+);
+
 export const artifacts = pgTable(
   "artifacts",
   {

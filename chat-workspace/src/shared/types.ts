@@ -1,6 +1,8 @@
 export type PresenceState = "idle" | "working" | "waiting" | "offline";
+export type ThreadStatus = "working" | "waiting" | "done";
 export type MemberKind = "human" | "agent";
 export type RoomKind = "channel" | "dm";
+export type ArtifactKind = "markdown" | "link" | "file" | "image";
 
 export interface WorkspaceSummary {
   id: string;
@@ -47,17 +49,98 @@ export interface MessageSummary {
   deletedAt: string | null;
 }
 
+export type DecisionBlockKind = "approve_reject" | "short_question" | "pick_one";
+export type DecisionBlockStatus = "open" | "resolved" | "expired";
+
+export interface DecisionBlockSummary {
+  id: string;
+  workspaceId: string;
+  messageId: string;
+  threadId: string | null;
+  createdByAgentMemberId: string;
+  kind: DecisionBlockKind;
+  title: string;
+  prompt: string;
+  schema: Record<string, unknown>;
+  status: DecisionBlockStatus;
+  idempotencyKey: string;
+  expiresAt: string | null;
+  resolvedByMemberId: string | null;
+  result: Record<string, unknown> | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WakeEventSummary {
+  id: string;
+  workspaceId: string;
+  roomId: string | null;
+  threadId: string | null;
+  triggerKind: string;
+  triggerMessageId: string | null;
+  triggerDecisionBlockId: string | null;
+  targetAgentMemberId: string;
+  routingPolicyVersion: string;
+  dedupeKey: string;
+  status: "queued" | "coalescing" | "running" | "completed" | "cancelled" | "failed";
+  reason: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ArtifactPreview {
+  excerpt?: string;
+  description?: string;
+  url?: string;
+  imageUrl?: string;
+  fileName?: string;
+  sizeBytes?: number;
+  width?: number;
+  height?: number;
+  altText?: string;
+}
+
+export interface ArtifactSummary {
+  id: string;
+  workspaceId: string;
+  threadId: string | null;
+  messageId: string | null;
+  createdByMemberId: string;
+  kind: ArtifactKind;
+  title: string;
+  mimeType: string | null;
+  storageKey: string | null;
+  externalUrl: string | null;
+  preview: ArtifactPreview;
+  provenance: Record<string, string | number | boolean | null>;
+  retentionPolicy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ActivitySummary {
   id: string;
   workspaceId: string;
   roomId: string;
   threadId: string | null;
-  subjectKind: "decision" | "artifact" | "thread";
+  subjectKind: "decision" | "artifact" | "thread" | "session";
   subjectId: string;
   actorMemberId: string | null;
+  actionOwnerMemberId: string | null;
   state: "action_needed" | "recently_done" | "working";
   summary: string;
   sortAt: string;
+}
+
+export interface ThreadStateSummary {
+  id: string;
+  workspaceId: string;
+  roomId: string;
+  rootMessageId: string | null;
+  status: ThreadStatus;
+  actorMemberId: string | null;
+  lastActivityAt: string;
 }
 
 export interface BootstrapPayload {
@@ -65,7 +148,9 @@ export interface BootstrapPayload {
   members: MemberSummary[];
   rooms: RoomSummary[];
   messages: MessageSummary[];
+  artifacts: ArtifactSummary[];
   activity: ActivitySummary[];
+  threadStates: ThreadStateSummary[];
   eventToken: string;
 }
 

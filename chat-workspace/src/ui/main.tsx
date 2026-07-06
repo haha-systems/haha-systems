@@ -2,10 +2,13 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import type {
   ActivitySummary,
+  ArtifactSummary,
   BootstrapPayload,
   MemberSummary,
   MessageSummary,
   RoomSummary,
+  ThreadStateSummary,
+  ThreadStatus,
   WorkspaceEvent
 } from "../shared/types";
 import "./styles.css";
@@ -23,7 +26,7 @@ interface ThreadSummary {
   id: string;
   parent: MessageSummary;
   replies: MessageSummary[];
-  status: "working" | "waiting" | "done";
+  status: ThreadStatus;
   label: string;
 }
 
@@ -67,6 +70,7 @@ function App() {
   const { data, error } = useBootstrap();
   const [selectedRoomId, setSelectedRoomId] = React.useState<string | null>(null);
   const [messages, setMessages] = React.useState<MessageSummary[]>([]);
+  const [artifacts, setArtifacts] = React.useState<ArtifactSummary[]>([]);
   const [eventState, setEventState] = React.useState("connecting");
   const [contextMode, setContextMode] = React.useState<ContextMode>("roster");
   const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
@@ -79,6 +83,7 @@ function App() {
     }
     setSelectedRoomId((current) => current ?? data.rooms[0]?.id ?? null);
     setMessages(data.messages);
+    setArtifacts(data.artifacts);
   }, [data]);
 
   React.useEffect(() => {
@@ -94,10 +99,14 @@ function App() {
     socket.addEventListener("message", (event) => {
       const parsed = JSON.parse(String(event.data)) as WorkspaceEvent;
       setEventState(parsed.type === "connection.ready" ? "live" : `${parsed.type} #${parsed.sequence}`);
-      applyWorkspaceEvent(parsed, setMessages);
+      applyWorkspaceEvent(parsed, setMessages, setArtifacts);
       if (parsed.type === "message.created") {
         const message = parsed.payload.message as MessageSummary | undefined;
         setAnnounce(message ? `New message: ${message.body}` : "New message received");
+      }
+      if (parsed.type === "artifact.created") {
+        const artifact = parsed.payload.artifact as ArtifactSummary | undefined;
+        setAnnounce(artifact ? `New artifact: ${artifact.title}` : "New artifact received");
       }
     });
     socket.addEventListener("open", () => setEventState("live"));
@@ -122,7 +131,9 @@ function App() {
         document.querySelector<HTMLInputElement>("[data-composer-input]")?.focus();
       }
       if (event.key.toLowerCase() === "t") {
-        const firstThread = selectedRoomId ? getThreads(messages).find((thread) => thread.parent.roomId === selectedRoomId) : null;
+        const firstThread = selectedRoomId
+          ? getThreads(messages, data?.threadStates ?? []).find((thread) => thread.parent.roomId === selectedRoomId)
+          : null;
         if (firstThread) {
           openThread(firstThread.id);
         }
@@ -130,7 +141,7 @@ function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [messages, selectedRoomId]);
+  }, [data, messages, selectedRoomId]);
 
   if (error) {
     return <div className="loading">Could not load workspace: {error}</div>;
@@ -143,7 +154,7 @@ function App() {
   const currentMember = data.members.find((member) => member.kind === "human") ?? data.members[0];
   const workspaceId = data.workspace.id;
   const selectedRoom = data.rooms.find((room) => room.id === selectedRoomId) ?? data.rooms[0];
-  const threads = getThreads(messages);
+  const threads = getThreads(messages, data.threadStates);
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
   const roomMessages = messages.filter(
     (message) => message.roomId === selectedRoom?.id && !message.parentMessageId && !message.deletedAt
@@ -190,6 +201,36 @@ function App() {
     setAnnounce("Message sent");
   }
 
+  async function resolveDecisionBlock(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void> {
+    if (!currentMember) {
+      throw new Error("No current member available");
+    }
+    const decisionBlockId = typeof block.id === "string" ? block.id : "";
+    const expectedUpdatedAt = typeof block.updatedAt === "string" ? block.updatedAt : undefined;
+    if (!decisionBlockId) {
+      throw new Error("Decision block is missing its durable id");
+    }
+
+    const response = await fetch(`/api/decision-blocks/${decisionBlockId}/resolve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        resolvedByMemberId: currentMember.id,
+        result,
+        expectedUpdatedAt
+      })
+    });
+
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => ({ error: "Decision did not submit" }))) as { error?: string };
+      throw new Error(detail.error ?? `Decision failed with ${response.status}`);
+    }
+
+    const resolved = (await response.json()) as { message: MessageSummary };
+    mergeMessage(setMessages, resolved.message);
+    setAnnounce("Decision submitted");
+  }
+
   return (
     <main className="workspace-shell">
       <LeftRail
@@ -203,10 +244,12 @@ function App() {
           setContextMode("activity");
           setMobileTab("activity");
         }}
+        currentMemberId={currentMember?.id ?? null}
       />
       <ConversationPane
         room={selectedRoom}
         messages={roomMessages}
+        artifacts={artifacts}
         members={data.members}
         eventState={eventState}
         threads={threads}
@@ -214,10 +257,12 @@ function App() {
         onOpenThread={openThread}
         onToggleRoster={() => setContextMode((mode) => (mode === "roster" ? "activity" : "roster"))}
         onSendMessage={(body, mentions) => selectedRoom && sendMessage(selectedRoom.id, body, mentions)}
+        onResolveDecision={resolveDecisionBlock}
       />
       <ContextPane
         mode={contextMode}
         selectedThread={selectedThread}
+        artifacts={artifacts}
         members={data.members}
         activity={data.activity}
         currentMember={currentMember}
@@ -230,10 +275,11 @@ function App() {
           }
           return sendMessage(selectedThread.parent.roomId, body, mentions, selectedThread.parent.id);
         }}
+        onResolveDecision={resolveDecisionBlock}
       />
       <MobileTabs
         active={mobileTab}
-        actionNeeded={data.activity.filter((item) => item.state === "action_needed").length}
+        actionNeeded={getActionNeededCount(data.activity, currentMember?.id ?? null)}
         onSelect={(tab) => {
           setMobileTab(tab);
           if (tab === "activity") {
@@ -251,14 +297,21 @@ function App() {
 
 function applyWorkspaceEvent(
   event: WorkspaceEvent,
-  setMessages: React.Dispatch<React.SetStateAction<MessageSummary[]>>
+  setMessages: React.Dispatch<React.SetStateAction<MessageSummary[]>>,
+  setArtifacts: React.Dispatch<React.SetStateAction<ArtifactSummary[]>>
 ): void {
   const message = event.payload.message as MessageSummary | undefined;
-  if (!message) {
+  if (event.type === "message.created" || event.type === "message.updated" || event.type === "message.deleted") {
+    if (message) {
+      mergeMessage(setMessages, message);
+    }
     return;
   }
-  if (event.type === "message.created" || event.type === "message.updated" || event.type === "message.deleted") {
-    mergeMessage(setMessages, message);
+  if (event.type === "artifact.created") {
+    const artifact = event.payload.artifact as ArtifactSummary | undefined;
+    if (artifact) {
+      mergeArtifact(setArtifacts, artifact);
+    }
   }
 }
 
@@ -285,9 +338,32 @@ function sortByCreatedAt(left: MessageSummary, right: MessageSummary): number {
   return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
 }
 
-function getThreads(messages: MessageSummary[]): ThreadSummary[] {
+function mergeArtifact(
+  setArtifacts: React.Dispatch<React.SetStateAction<ArtifactSummary[]>>,
+  artifact: ArtifactSummary
+): void {
+  setArtifacts((current) => {
+    const existingIndex = current.findIndex((candidate) => candidate.id === artifact.id);
+    if (existingIndex === -1) {
+      return [...current, artifact].sort(sortArtifactsByCreatedAt);
+    }
+    const next = [...current];
+    next[existingIndex] = artifact;
+    return next.sort(sortArtifactsByCreatedAt);
+  });
+}
+
+function sortArtifactsByCreatedAt(left: ArtifactSummary, right: ArtifactSummary): number {
+  return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+}
+
+function getThreads(messages: MessageSummary[], threadStates: ThreadStateSummary[] = []): ThreadSummary[] {
   const parents = new Map<string, MessageSummary>();
   const repliesByParent = new Map<string, MessageSummary[]>();
+  const statesByThreadId = new Map(threadStates.map((thread) => [thread.id, thread]));
+  const statesByRootMessageId = new Map(
+    threadStates.flatMap((thread) => (thread.rootMessageId ? [[thread.rootMessageId, thread] as const] : []))
+  );
 
   for (const message of messages) {
     if (!message.parentMessageId) {
@@ -307,11 +383,12 @@ function getThreads(messages: MessageSummary[]): ThreadSummary[] {
       }
       const sortedReplies = replies.filter((reply) => !reply.deletedAt).sort(sortByCreatedAt);
       const id = sortedReplies[0]?.threadId ?? parent.threadId ?? parent.id;
+      const liveState = statesByThreadId.get(id) ?? statesByRootMessageId.get(parent.id);
       return {
         id,
         parent,
         replies: sortedReplies,
-        status: deriveThreadStatus(sortedReplies),
+        status: liveState?.status ?? deriveThreadStatus(sortedReplies),
         label: deriveThreadLabel(parent)
       };
     })
@@ -328,6 +405,14 @@ function deriveThreadStatus(messages: MessageSummary[]): ThreadSummary["status"]
   return "done";
 }
 
+function getActionNeededCount(activity: ActivitySummary[], currentMemberId: string | null): number {
+  return activity.filter(
+    (item) =>
+      item.state === "action_needed" &&
+      (!item.actionOwnerMemberId || !currentMemberId || item.actionOwnerMemberId === currentMemberId)
+  ).length;
+}
+
 function deriveThreadLabel(parent: MessageSummary): string {
   const cleaned = parent.body.replace(/@\w+/g, "").replace(/[^\w\s-]/g, "").trim();
   const words = cleaned.split(/\s+/).filter(Boolean).slice(0, 4);
@@ -341,11 +426,12 @@ function LeftRail(props: {
   selectedRoomId: string;
   onSelectRoom(roomId: string): void;
   activity: ActivitySummary[];
+  currentMemberId: string | null;
   onOpenActivity(): void;
 }) {
   const channels = props.rooms.filter((room) => room.kind === "channel");
   const dms = props.rooms.filter((room) => room.kind === "dm");
-  const actionsNeeded = props.activity.filter((item) => item.state === "action_needed").length;
+  const actionsNeeded = getActionNeededCount(props.activity, props.currentMemberId);
 
   function onRailKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
@@ -433,6 +519,7 @@ function RoomButton(props: { room: RoomSummary; selected: boolean; onSelect(): v
 function ConversationPane(props: {
   room: RoomSummary | undefined;
   messages: MessageSummary[];
+  artifacts: ArtifactSummary[];
   members: MemberSummary[];
   eventState: string;
   threads: ThreadSummary[];
@@ -440,6 +527,7 @@ function ConversationPane(props: {
   onOpenThread(threadId: string): void;
   onToggleRoster(): void;
   onSendMessage(body: string, mentions: string[]): Promise<void>;
+  onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
 }) {
   const streamRef = React.useRef<HTMLDivElement | null>(null);
   const title = props.room?.kind === "channel" ? `# ${props.room.name}` : `DM · ${props.room?.name ?? ""}`;
@@ -471,10 +559,12 @@ function ConversationPane(props: {
             <MessageRow
               key={message.id}
               message={message}
+              artifacts={props.artifacts.filter((artifact) => artifact.messageId === message.id)}
               author={author}
               members={props.members}
               thread={thread}
               onOpenThread={props.onOpenThread}
+              onResolveDecision={props.onResolveDecision}
             />
           );
         })}
@@ -494,10 +584,12 @@ function ConversationPane(props: {
 
 function MessageRow(props: {
   message: MessageSummary;
+  artifacts: ArtifactSummary[];
   author: MemberSummary | undefined;
   members: MemberSummary[];
   thread: ThreadSummary | undefined;
   onOpenThread(threadId: string): void;
+  onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
 }) {
   const initials = props.author?.displayName.slice(0, 2).toUpperCase() ?? "--";
   const time = formatTime(props.message.createdAt);
@@ -514,8 +606,9 @@ function MessageRow(props: {
         </div>
         <p>{renderMessageText(props.message.body, props.members)}</p>
         {props.message.blocks.map((block, index) => (
-          <MessageBlock block={block} key={index} />
+          <MessageBlock block={block} key={index} onResolveDecision={props.onResolveDecision} />
         ))}
+        <ArtifactList artifacts={props.artifacts} compact={false} />
         {props.thread ? <ThreadAnchor thread={props.thread} onOpenThread={props.onOpenThread} /> : null}
       </div>
     </article>
@@ -533,9 +626,14 @@ function ThreadAnchor(props: { thread: ThreadSummary; onOpenThread(threadId: str
   );
 }
 
-function MessageBlock(props: { block: Record<string, unknown> }) {
-  const [resolvedChoice, setResolvedChoice] = React.useState<string | null>(null);
+function MessageBlock(props: {
+  block: Record<string, unknown>;
+  onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
+}) {
   const [choice, setChoice] = React.useState("");
+  const [answer, setAnswer] = React.useState("");
+  const [submitState, setSubmitState] = React.useState<"idle" | "sending" | "failed">("idle");
+  const [error, setError] = React.useState("");
 
   if (props.block.type === "progress") {
     const lines = Array.isArray(props.block.lines) ? props.block.lines.map(String) : [];
@@ -549,34 +647,89 @@ function MessageBlock(props: { block: Record<string, unknown> }) {
   }
 
   if (props.block.type === "decision") {
+    const kind = typeof props.block.kind === "string" ? props.block.kind : "pick_one";
     const options = Array.isArray(props.block.options) ? props.block.options.map(String) : [];
-    if (resolvedChoice) {
+    const status = typeof props.block.status === "string" ? props.block.status : "open";
+    const prompt = typeof props.block.prompt === "string" ? props.block.prompt : "Choose a direction so the work can continue.";
+    const title = String(props.block.title ?? "answer");
+    const disabled = submitState === "sending" || typeof props.block.id !== "string";
+
+    async function submit(result: Record<string, unknown>): Promise<void> {
+      setSubmitState("sending");
+      setError("");
+      try {
+        await props.onResolveDecision(props.block, result);
+        setSubmitState("idle");
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Decision did not submit");
+        setSubmitState("failed");
+      }
+    }
+
+    if (status === "resolved") {
       return (
         <div className="decision-block resolved" role="group" aria-label="Decision resolved">
           <div className="decision-title">✓ Decision resolved</div>
-          <p>You chose {resolvedChoice}.</p>
+          <p>{decisionReceiptText(props.block)}</p>
         </div>
       );
     }
 
     return (
-      <div className="decision-block" role="group" aria-label={`Decision ${String(props.block.title ?? "answer")}`}>
-        <div className="decision-title">◇ Decision · {String(props.block.title ?? "answer")}</div>
-        <p>Choose a direction so the work can continue.</p>
-        <div className="decision-options">
-          {options.map((option) => (
-            <label key={option}>
-              <input
-                type="radio"
-                name={`direction-${String(props.block.title ?? "decision")}`}
-                checked={choice === option}
-                onChange={() => setChoice(option)}
-              />
-              <span>{option}</span>
-            </label>
-          ))}
-        </div>
-        <button type="button" disabled={!choice} onClick={() => setResolvedChoice(choice)}>Submit</button>
+      <div className="decision-block" role="group" aria-label={`Decision ${title}`}>
+        <div className="decision-title">◇ Decision · {title}</div>
+        <p>{prompt}</p>
+        {kind === "approve_reject" ? (
+          <div className="decision-actions">
+            <button type="button" disabled={disabled} onClick={() => void submit({ decision: "approved" })}>
+              {String(props.block.approveLabel ?? "Approve")}
+            </button>
+            <button type="button" className="secondary" disabled={disabled} onClick={() => void submit({ decision: "rejected" })}>
+              {String(props.block.rejectLabel ?? "Reject")}
+            </button>
+          </div>
+        ) : null}
+        {kind === "short_question" ? (
+          <>
+            <textarea
+              value={answer}
+              maxLength={Number(props.block.maxLength ?? 500)}
+              placeholder={String(props.block.placeholder ?? "Type your answer")}
+              onChange={(event) => {
+                setAnswer(event.target.value);
+                setSubmitState("idle");
+              }}
+            />
+            <button type="button" disabled={disabled || !answer.trim()} onClick={() => void submit({ answer: answer.trim() })}>
+              {submitState === "sending" ? "Submitting..." : "Submit"}
+            </button>
+          </>
+        ) : null}
+        {kind !== "approve_reject" && kind !== "short_question" ? (
+          <>
+            <div className="decision-options">
+              {options.map((option) => (
+                <label key={option}>
+                  <input
+                    type="radio"
+                    name={`direction-${String(props.block.id ?? title)}`}
+                    checked={choice === option}
+                    onChange={() => {
+                      setChoice(option);
+                      setSubmitState("idle");
+                    }}
+                  />
+                  <span>{option}</span>
+                </label>
+              ))}
+            </div>
+            <button type="button" disabled={disabled || !choice} onClick={() => void submit({ choice })}>
+              {submitState === "sending" ? "Submitting..." : "Submit"}
+            </button>
+          </>
+        ) : null}
+        {typeof props.block.id !== "string" ? <p className="decision-error">Decision is not synced yet.</p> : null}
+        {submitState === "failed" ? <p className="decision-error">{error}</p> : null}
       </div>
     );
   }
@@ -584,9 +737,133 @@ function MessageBlock(props: { block: Record<string, unknown> }) {
   return null;
 }
 
+function decisionReceiptText(block: Record<string, unknown>): string {
+  const result = block.result && typeof block.result === "object" && !Array.isArray(block.result)
+    ? (block.result as Record<string, unknown>)
+    : {};
+  if (result.decision === "approved") {
+    return "Approved.";
+  }
+  if (result.decision === "rejected") {
+    return "Rejected.";
+  }
+  if (typeof result.answer === "string") {
+    return `Answered: ${result.answer}`;
+  }
+  if (typeof result.choice === "string") {
+    return `Chose ${result.choice}.`;
+  }
+  return "Decision receipt recorded.";
+}
+
+function ArtifactList(props: { artifacts: ArtifactSummary[]; compact: boolean }) {
+  if (props.artifacts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={`artifact-list ${props.compact ? "compact" : ""}`} aria-label="Artifacts">
+      {props.artifacts.map((artifact) => (
+        <ArtifactPreviewCard artifact={artifact} key={artifact.id} />
+      ))}
+    </div>
+  );
+}
+
+function ArtifactPreviewCard(props: { artifact: ArtifactSummary }) {
+  const { artifact } = props;
+  const title = artifact.title || "Untitled artifact";
+
+  return (
+    <article className={`artifact-card kind-${artifact.kind}`} aria-label={`${artifact.kind} artifact: ${title}`}>
+      <div className="artifact-kind" aria-hidden="true">{artifactIcon(artifact.kind)}</div>
+      <div className="artifact-content">
+        <div className="artifact-heading">
+          <strong>{title}</strong>
+          <span>{artifact.kind}</span>
+        </div>
+        <ArtifactBody artifact={artifact} />
+        <div className="artifact-meta">
+          {artifact.mimeType ? <span>{artifact.mimeType}</span> : null}
+          {artifact.preview.sizeBytes !== undefined ? <span>{formatBytes(artifact.preview.sizeBytes)}</span> : null}
+          <span>{formatTime(artifact.createdAt)}</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ArtifactBody(props: { artifact: ArtifactSummary }) {
+  const { artifact } = props;
+  const preview = artifact.preview;
+
+  if (artifact.kind === "markdown") {
+    return <p className="artifact-excerpt">{preview.excerpt ?? "Markdown preview unavailable."}</p>;
+  }
+
+  if (artifact.kind === "link") {
+    const href = safeHref(preview.url ?? artifact.externalUrl);
+    return (
+      <p className="artifact-excerpt">
+        {preview.description ?? "Link preview unavailable."}
+        {href ? (
+          <>
+            {" "}
+            <a href={href} target="_blank" rel="noreferrer">Open link</a>
+          </>
+        ) : null}
+      </p>
+    );
+  }
+
+  if (artifact.kind === "image") {
+    const src = safeHref(preview.imageUrl ?? artifact.externalUrl);
+    return (
+      <div className="image-preview">
+        {src ? <img src={src} alt={preview.altText ?? artifact.title} loading="lazy" /> : <span>No safe image preview</span>}
+        {preview.description ? <p>{preview.description}</p> : null}
+        {preview.width && preview.height ? <small>{preview.width} x {preview.height}</small> : null}
+      </div>
+    );
+  }
+
+  return (
+    <p className="artifact-excerpt">
+      {preview.fileName ?? artifact.storageKey ?? "File metadata only"}
+      {preview.description ? ` - ${preview.description}` : ""}
+    </p>
+  );
+}
+
+function artifactIcon(kind: ArtifactSummary["kind"]): string {
+  switch (kind) {
+    case "markdown":
+      return "MD";
+    case "link":
+      return "↗";
+    case "image":
+      return "IMG";
+    default:
+      return "FILE";
+  }
+}
+
+function safeHref(value: string | undefined | null): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function ContextPane(props: {
   mode: ContextMode;
   selectedThread: ThreadSummary | null;
+  artifacts: ArtifactSummary[];
   members: MemberSummary[];
   activity: ActivitySummary[];
   currentMember: MemberSummary | undefined;
@@ -594,6 +871,7 @@ function ContextPane(props: {
   onModeChange(mode: ContextMode): void;
   onJumpToRoom(roomId: string): void;
   onSendThreadReply(body: string, mentions: string[]): Promise<void>;
+  onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
 }) {
   const agents = props.members.filter((member) => member.kind === "agent");
   const humans = props.members.filter((member) => member.kind === "human");
@@ -609,9 +887,11 @@ function ContextPane(props: {
       {props.mode === "thread" ? (
         <ThreadPanel
           thread={props.selectedThread}
+          artifacts={props.artifacts}
           members={props.members}
           room={props.room}
           onSendThreadReply={props.onSendThreadReply}
+          onResolveDecision={props.onResolveDecision}
         />
       ) : null}
 
@@ -620,7 +900,12 @@ function ContextPane(props: {
       ) : null}
 
       {props.mode === "activity" ? (
-        <ActivityList activity={props.activity} members={props.members} onJumpToRoom={props.onJumpToRoom} />
+        <ActivityList
+          activity={props.activity}
+          members={props.members}
+          currentMemberId={props.currentMember?.id ?? null}
+          onJumpToRoom={props.onJumpToRoom}
+        />
       ) : null}
     </aside>
   );
@@ -628,9 +913,11 @@ function ContextPane(props: {
 
 function ThreadPanel(props: {
   thread: ThreadSummary | null;
+  artifacts: ArtifactSummary[];
   members: MemberSummary[];
   room: RoomSummary | undefined;
   onSendThreadReply(body: string, mentions: string[]): Promise<void>;
+  onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
 }) {
   if (!props.thread) {
     return (
@@ -656,7 +943,15 @@ function ThreadPanel(props: {
       <div className="thread-messages">
         {[props.thread.parent, ...props.thread.replies].map((message) => {
           const author = props.members.find((member) => member.id === message.authorMemberId);
-          return <CompactMessage key={message.id} message={message} author={author} />;
+          return (
+            <CompactMessage
+              key={message.id}
+              message={message}
+              artifacts={props.artifacts.filter((artifact) => artifact.messageId === message.id)}
+              author={author}
+              onResolveDecision={props.onResolveDecision}
+            />
+          );
         })}
       </div>
       <Composer
@@ -668,7 +963,12 @@ function ThreadPanel(props: {
   );
 }
 
-function CompactMessage(props: { message: MessageSummary; author: MemberSummary | undefined }) {
+function CompactMessage(props: {
+  message: MessageSummary;
+  artifacts: ArtifactSummary[];
+  author: MemberSummary | undefined;
+  onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
+}) {
   return (
     <article className="compact-message">
       <div className="message-meta">
@@ -678,8 +978,9 @@ function CompactMessage(props: { message: MessageSummary; author: MemberSummary 
       </div>
       <p>{props.message.body}</p>
       {props.message.blocks.map((block, index) => (
-        <MessageBlock block={block} key={index} />
+        <MessageBlock block={block} key={index} onResolveDecision={props.onResolveDecision} />
       ))}
+      <ArtifactList artifacts={props.artifacts} compact />
     </article>
   );
 }
@@ -712,16 +1013,17 @@ function Roster(props: { agents: MemberSummary[]; humans: MemberSummary[] }) {
 function ActivityList(props: {
   activity: ActivitySummary[];
   members: MemberSummary[];
+  currentMemberId: string | null;
   onJumpToRoom(roomId: string): void;
 }) {
   const actionNeeded = props.activity.filter((item) => item.state === "action_needed");
-  const recentlyDone = props.activity.filter((item) => item.state !== "action_needed");
+  const recentlyDone = props.activity.filter((item) => item.state === "recently_done");
 
   return (
     <section className="activity-card">
       <div className="pane-heading">
         <h2>Activity</h2>
-        <span>{actionNeeded.length} need you</span>
+        <span>{getActionNeededCount(props.activity, props.currentMemberId)} need you</span>
       </div>
       <ActivityGroup title="Action needed" items={actionNeeded} members={props.members} onJumpToRoom={props.onJumpToRoom} />
       <ActivityGroup title="Recently done" items={recentlyDone} members={props.members} onJumpToRoom={props.onJumpToRoom} />
@@ -933,6 +1235,16 @@ function extractMentionIds(body: string, members: MemberSummary[]): string[] {
 
 function formatTime(value: string): string {
   return new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(new Date(value));
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 createRoot(root).render(

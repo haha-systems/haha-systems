@@ -11,7 +11,9 @@
     "start": "NODE_ENV=production node dist/server/src/server/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
     "db:migrate": "tsx scripts/migrate.ts",
+    "verify:artifacts": "tsx scripts/verify-artifacts.ts",
     "verify:chat-core": "tsx scripts/verify-chat-core.ts",
+    "verify:live-state": "tsx scripts/verify-live-state.ts",
     "verify:ws": "tsx scripts/verify-ws.ts",
     "verify:boot": "tsx scripts/verify-boot.ts"
   },

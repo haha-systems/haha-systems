@@ -8,14 +8,20 @@ import { seedMembers, seedWorkspace } from "../shared/seed-data.js";
 import { authenticateWorkspaceSocket, createWorkspaceGateway } from "./events.js";
 import {
   ChatRepositoryError,
+  createArtifact,
+  createDecisionBlock,
   deleteMessage,
   editMessage,
+  getVisibleArtifact,
   getMessageLimit,
+  listArtifactsForMember,
+  listDecisionBlocks,
   listMembersForMember,
   listRoomMessages,
   listRoomsForMember,
   listThreadMessages,
   loadBootstrap,
+  resolveDecisionBlock,
   sendRoomMessage,
   sendThreadReply
 } from "./repository.js";
@@ -47,14 +53,6 @@ export async function createChatWorkspaceServer(
     res.json({ status: "ok", workspaceId: seedWorkspace.id });
   });
 
-  app.get("/api/bootstrap", async (_req, res, next) => {
-    try {
-      res.json(await loadBootstrap(client));
-    } catch (error) {
-      next(error);
-    }
-  });
-
   const currentMemberId = (req: express.Request): string => {
     const header = req.header("x-member-id");
     const query = typeof req.query.memberId === "string" ? req.query.memberId : undefined;
@@ -64,6 +62,14 @@ export async function createChatWorkspaceServer(
         : undefined;
     return header ?? query ?? bodyMember ?? seedMembers[0].id;
   };
+
+  app.get("/api/bootstrap", async (req, res, next) => {
+    try {
+      res.json(await loadBootstrap(client, seedWorkspace.id, currentMemberId(req)));
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.get("/api/workspaces/:workspaceId/members", async (req, res, next) => {
     try {
@@ -124,6 +130,137 @@ export async function createChatWorkspaceServer(
           limit: getMessageLimit(req.query.limit)
         })
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workspaces/:workspaceId/artifacts", async (req, res, next) => {
+    try {
+      res.json({
+        artifacts: await listArtifactsForMember(client, req.params.workspaceId, currentMemberId(req), {
+          messageId: typeof req.query.messageId === "string" ? req.query.messageId : undefined,
+          threadId: typeof req.query.threadId === "string" ? req.query.threadId : undefined,
+          limit: getMessageLimit(req.query.limit)
+        })
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/artifacts/:artifactId", async (req, res, next) => {
+    try {
+      res.json({ artifact: await getVisibleArtifact(client, req.params.artifactId, currentMemberId(req)) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/artifacts", async (req, res, next) => {
+    try {
+      const result = await createArtifact(client, {
+        workspaceId: typeof req.body.workspaceId === "string" ? req.body.workspaceId : seedWorkspace.id,
+        messageId: typeof req.body.messageId === "string" ? req.body.messageId : undefined,
+        threadId: typeof req.body.threadId === "string" ? req.body.threadId : undefined,
+        createdByMemberId:
+          typeof req.body.createdByMemberId === "string" ? req.body.createdByMemberId : currentMemberId(req),
+        kind: req.body.kind,
+        title: String(req.body.title ?? ""),
+        mimeType: typeof req.body.mimeType === "string" ? req.body.mimeType : undefined,
+        storageKey: typeof req.body.storageKey === "string" ? req.body.storageKey : undefined,
+        externalUrl: typeof req.body.externalUrl === "string" ? req.body.externalUrl : undefined,
+        preview: req.body.preview && typeof req.body.preview === "object" && !Array.isArray(req.body.preview)
+          ? req.body.preview
+          : {},
+        provenance:
+          req.body.provenance && typeof req.body.provenance === "object" && !Array.isArray(req.body.provenance)
+            ? req.body.provenance
+            : {},
+        retentionPolicy: typeof req.body.retentionPolicy === "string" ? req.body.retentionPolicy : undefined
+      });
+      for (const event of result.events) {
+        gateway.publish(event);
+      }
+      res.status(201).json({ artifact: result.artifact });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/workspaces/:workspaceId/decision-blocks", async (req, res, next) => {
+    try {
+      res.json({
+        decisionBlocks: await listDecisionBlocks(client, req.params.workspaceId, currentMemberId(req), {
+          status:
+            req.query.status === "open" || req.query.status === "resolved" || req.query.status === "expired"
+              ? req.query.status
+              : undefined,
+          messageId: typeof req.query.messageId === "string" ? req.query.messageId : undefined,
+          threadId: typeof req.query.threadId === "string" ? req.query.threadId : undefined
+        })
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/messages/:messageId/decision-blocks", async (req, res, next) => {
+    try {
+      if (req.body.kind !== "approve_reject" && req.body.kind !== "short_question" && req.body.kind !== "pick_one") {
+        throw new ChatRepositoryError("Decision kind must be approve_reject, short_question, or pick_one", 422);
+      }
+      const result = await createDecisionBlock(client, {
+        messageId: req.params.messageId,
+        createdByAgentMemberId:
+          typeof req.body.createdByAgentMemberId === "string"
+            ? req.body.createdByAgentMemberId
+            : typeof req.body.authorMemberId === "string"
+              ? req.body.authorMemberId
+              : currentMemberId(req),
+        kind: req.body.kind,
+        title: String(req.body.title ?? ""),
+        prompt: String(req.body.prompt ?? ""),
+        schema:
+          req.body.schema && typeof req.body.schema === "object" && !Array.isArray(req.body.schema)
+            ? req.body.schema
+            : {},
+        idempotencyKey: typeof req.body.idempotencyKey === "string" ? req.body.idempotencyKey : undefined,
+        expiresAt: typeof req.body.expiresAt === "string" ? req.body.expiresAt : undefined
+      });
+      for (const event of result.events) {
+        gateway.publish(event);
+      }
+      res.status(result.idempotent ? 200 : 201).json({
+        decisionBlock: result.decisionBlock,
+        message: result.message,
+        idempotent: Boolean(result.idempotent)
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/decision-blocks/:decisionBlockId/resolve", async (req, res, next) => {
+    try {
+      const result = await resolveDecisionBlock(client, {
+        decisionBlockId: req.params.decisionBlockId,
+        resolvedByMemberId:
+          typeof req.body.resolvedByMemberId === "string"
+            ? req.body.resolvedByMemberId
+            : typeof req.body.memberId === "string"
+              ? req.body.memberId
+              : currentMemberId(req),
+        result:
+          req.body.result && typeof req.body.result === "object" && !Array.isArray(req.body.result)
+            ? req.body.result
+            : {},
+        expectedUpdatedAt: typeof req.body.expectedUpdatedAt === "string" ? req.body.expectedUpdatedAt : undefined
+      });
+      for (const event of result.events) {
+        gateway.publish(event);
+      }
+      res.json({ decisionBlock: result.decisionBlock, message: result.message, wakeEvent: result.wakeEvent });
     } catch (error) {
       next(error);
     }
@@ -195,7 +332,11 @@ export async function createChatWorkspaceServer(
 
   app.get("/api/activity", async (req, res, next) => {
     try {
-      const bootstrap = await loadBootstrap(client, String(req.query.workspaceId ?? seedWorkspace.id));
+      const bootstrap = await loadBootstrap(
+        client,
+        String(req.query.workspaceId ?? seedWorkspace.id),
+        currentMemberId(req)
+      );
       res.json({ activity: bootstrap.activity });
     } catch (error) {
       next(error);
