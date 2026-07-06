@@ -42,7 +42,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -51,7 +52,8 @@ button {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+textarea:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
@@ -409,6 +411,13 @@ button:disabled {
   margin: 10px 0;
 }
 
+.decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .decision-options label {
   display: flex;
   align-items: center;
@@ -424,6 +433,30 @@ button:disabled {
   background: var(--accent);
   color: var(--accent-ink);
   font-weight: 800;
+}
+
+.decision-block button.secondary {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--fg-default);
+}
+
+.decision-block textarea {
+  width: 100%;
+  min-height: 78px;
+  margin: 8px 0;
+  padding: 10px;
+  resize: vertical;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  color: var(--fg-default);
+}
+
+.decision-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 13px;
 }
 
 .artifact-list {
