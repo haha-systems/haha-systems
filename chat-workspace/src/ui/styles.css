@@ -167,6 +167,7 @@ button:disabled {
 
 .workspace-name,
 .activity-button,
+.mira-rail-button,
 .rail-item,
 .add-agent {
   display: flex;
@@ -179,6 +180,12 @@ button:disabled {
   background: transparent;
   color: var(--fg-muted);
   text-align: left;
+}
+
+.rail-help {
+  display: grid;
+  gap: 8px;
+  margin-top: auto;
 }
 
 .workspace-name {
@@ -199,6 +206,40 @@ button:disabled {
   background: var(--surface-soft);
   color: var(--fg-default);
   cursor: pointer;
+}
+
+.mira-rail-button {
+  justify-content: space-between;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  cursor: pointer;
+}
+
+.mira-rail-button:hover {
+  background: var(--hover-bg);
+  color: var(--fg-default);
+}
+
+.mira-rail-button span:last-child {
+  min-width: 46px;
+  color: var(--fg-disabled);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.mira-rail-button.active span:last-child {
+  color: var(--accent);
+}
+
+.mira-rail-button.disabled span:last-child {
+  color: var(--fg-disabled);
+}
+
+.mira-rail-button.error span:last-child {
+  color: var(--danger);
 }
 
 .badge,
@@ -257,10 +298,56 @@ button:disabled {
 }
 
 .add-agent {
-  margin-top: auto;
   padding: 0 8px;
   border: 1px dashed var(--border-strong);
   cursor: pointer;
+}
+
+.rail-help a,
+.doc-link,
+.icon-link,
+.subtle-link {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.rail-help a {
+  padding: 0 8px;
+}
+
+.doc-link,
+.icon-link {
+  display: grid;
+  min-height: 40px;
+  place-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-raised);
+}
+
+.doc-link {
+  padding: 0 12px;
+}
+
+.icon-link {
+  width: 40px;
+  color: var(--fg-default);
+}
+
+.subtle-link {
+  display: inline-block;
+  margin-top: 3px;
+  color: var(--fg-muted);
+}
+
+.rail-help a:hover,
+.doc-link:hover,
+.icon-link:hover,
+.subtle-link:hover {
+  color: var(--fg-default);
+  text-decoration: underline;
 }
 
 .conversation {
@@ -806,6 +893,118 @@ button:disabled {
   color: var(--fg-disabled);
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--drawer-scrim);
+}
+
+.agent-settings-modal {
+  width: min(560px, 100%);
+  max-height: min(86vh, 860px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface-glass);
+  box-shadow: 0 24px 70px var(--drawer-shadow);
+}
+
+.agent-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.agent-settings-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.agent-settings-header button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-base);
+}
+
+.agent-settings-form {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-settings-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.agent-settings-form label > span {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.agent-settings-form input {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--fg-default);
+}
+
+.agent-settings-form .toggle-row {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.agent-settings-form .toggle-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.agent-settings-meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.agent-settings-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.agent-settings-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.agent-settings-actions button.secondary {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--fg-default);
+}
+
+.agent-settings-actions .danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.agent-settings-actions.danger-zone {
+  margin-top: 2px;
+  grid-template-columns: 1fr 1fr;
+}
+
 .context-pane {
   display: flex;
   flex-direction: column;
@@ -819,7 +1018,7 @@ button:disabled {
 
 .context-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
 }
 
@@ -947,6 +1146,179 @@ button:disabled {
 .activity-row small {
   color: var(--fg-muted);
   font-size: 12px;
+}
+
+.mira-panel {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.mira-panel .pane-heading {
+  margin-bottom: 0;
+}
+
+.mira-copy,
+.mira-note,
+.mira-error {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.mira-error {
+  color: var(--danger);
+}
+
+.mira-health {
+  display: inline-grid;
+  min-width: 64px;
+  min-height: 28px;
+  place-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mira-health.active {
+  border-color: var(--status-working-border);
+  color: var(--accent);
+}
+
+.mira-health.disabled {
+  color: var(--fg-disabled);
+}
+
+.mira-health.error {
+  border-color: rgba(239, 143, 120, 0.46);
+  color: var(--danger);
+}
+
+.mira-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mira-status-grid div {
+  min-width: 0;
+  min-height: 72px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-base);
+}
+
+.mira-status-grid span,
+.mira-activity h3 {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--fg-disabled);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.mira-status-grid strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.mira-toggle {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  min-height: 44px;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-base);
+  cursor: pointer;
+}
+
+.mira-toggle input {
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.mira-toggle span {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.mira-doc-link a {
+  display: inline-grid;
+  min-height: 32px;
+  place-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--fg-default);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.mira-doc-link a:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-soft);
+}
+
+.mira-activity {
+  display: grid;
+  gap: 8px;
+}
+
+.mira-activity ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mira-activity li {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 3px 8px;
+  padding: 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-base);
+}
+
+.mira-activity li > span {
+  grid-row: span 2;
+  color: var(--fg-disabled);
+  font-size: 12px;
+}
+
+.mira-activity li strong {
+  font-size: 12px;
+}
+
+.mira-activity li p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.mira-activity li.severity-warning {
+  border-color: var(--status-waiting-border);
+}
+
+.mira-activity li.severity-error {
+  border-color: rgba(239, 143, 120, 0.46);
 }
 
 .presence {
@@ -1105,7 +1477,7 @@ button:disabled {
     left: 0;
     z-index: 30;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     min-height: 56px;
     border-top: 1px solid var(--border-subtle);
     background: var(--surface-sunken);

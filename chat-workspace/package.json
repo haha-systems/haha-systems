@@ -16,7 +16,9 @@
     "verify:decisions": "tsx scripts/verify-decisions.ts",
     "verify:live-state": "tsx scripts/verify-live-state.ts",
     "verify:ws": "tsx scripts/verify-ws.ts",
-    "verify:boot": "tsx scripts/verify-boot.ts"
+    "verify:boot": "tsx scripts/verify-boot.ts",
+    "verify:agents": "tsx scripts/verify-agents.ts",
+    "verify:agent-ui-flow": "tsx scripts/verify-agent-ui-flow.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.10",

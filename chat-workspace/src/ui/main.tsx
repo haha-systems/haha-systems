@@ -4,7 +4,9 @@ import type {
   ActivitySummary,
   ArtifactSummary,
   BootstrapPayload,
+  AgentSummary,
   MemberSummary,
+  MiraMonitorSummary,
   MessageSummary,
   RoomSummary,
   ThreadStateSummary,
@@ -19,9 +21,12 @@ if (!root) {
   throw new Error("Root element was not found");
 }
 
-type ContextMode = "thread" | "roster" | "activity";
+type ContextMode = "thread" | "roster" | "activity" | "mira";
 type ConnectionState = "connecting" | "online" | "reconnecting" | "offline";
 type SendState = "idle" | "sending" | "failed";
+type AgentFormMode = "create" | "edit";
+type AgentFormState = "idle" | "saving" | "failed";
+type MobileTab = "chats" | "activity" | "roster" | "mira";
 
 interface ThreadSummary {
   id: string;
@@ -29,6 +34,17 @@ interface ThreadSummary {
   replies: MessageSummary[];
   status: ThreadStatus;
   label: string;
+}
+
+interface AgentFormValues {
+  displayName: string;
+  handle: string;
+  role: string;
+  adapterType: string;
+  model: string;
+  instructionsRef: string;
+  budgetCap: string;
+  isEnabled: boolean;
 }
 
 function useBootstrap(): {
@@ -72,15 +88,32 @@ function App() {
   const [selectedRoomId, setSelectedRoomId] = React.useState<string | null>(null);
   const [rooms, setRooms] = React.useState<RoomSummary[]>([]);
   const [members, setMembers] = React.useState<MemberSummary[]>([]);
+  const [agentCatalog, setAgentCatalog] = React.useState<AgentSummary[]>([]);
   const [messages, setMessages] = React.useState<MessageSummary[]>([]);
   const [artifacts, setArtifacts] = React.useState<ArtifactSummary[]>([]);
   const [activity, setActivity] = React.useState<ActivitySummary[]>([]);
   const [threadStates, setThreadStates] = React.useState<ThreadStateSummary[]>([]);
+  const [miraMonitor, setMiraMonitor] = React.useState<MiraMonitorSummary | null>(null);
   const [eventState, setEventState] = React.useState<ConnectionState>("connecting");
   const [contextMode, setContextMode] = React.useState<ContextMode>("roster");
   const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
-  const [mobileTab, setMobileTab] = React.useState<"chats" | "activity" | "roster">("chats");
+  const [mobileTab, setMobileTab] = React.useState<MobileTab>("chats");
   const [announce, setAnnounce] = React.useState("");
+  const [agentFormMode, setAgentFormMode] = React.useState<AgentFormMode | null>(null);
+  const [agentFormTargetId, setAgentFormTargetId] = React.useState<string | null>(null);
+  const [agentFormState, setAgentFormState] = React.useState<AgentFormState>("idle");
+  const [agentFormError, setAgentFormError] = React.useState("");
+  const [agentFormValues, setAgentFormValues] = React.useState<AgentFormValues>({
+    displayName: "",
+    handle: "",
+    role: "",
+    adapterType: "local-adapter",
+    model: "gpt-5-codex",
+    instructionsRef: "",
+    budgetCap: "",
+    isEnabled: true
+  });
+
   const refreshWorkspaceSnapshot = React.useCallback(async (): Promise<void> => {
     const response = await fetch("/api/bootstrap");
     if (!response.ok) {
@@ -93,7 +126,52 @@ function App() {
     setArtifacts(payload.artifacts);
     setActivity(payload.activity);
     setThreadStates(payload.threadStates);
+    setMiraMonitor(payload.miraMonitor);
   }, []);
+
+  const refreshAgentCatalog = React.useCallback(async (): Promise<void> => {
+    if (!data) {
+      return;
+    }
+    const response = await fetch(`/api/workspaces/${data.workspace.id}/agents`);
+    if (!response.ok) {
+      throw new Error(`Agent catalog refresh failed with ${response.status}`);
+    }
+    const payload = (await response.json()) as { agents: AgentSummary[] };
+    setAgentCatalog(payload.agents);
+  }, [data]);
+
+  const refreshWorkspaceData = React.useCallback(async (): Promise<void> => {
+    await Promise.all([refreshWorkspaceSnapshot(), refreshAgentCatalog()]);
+  }, [refreshWorkspaceSnapshot, refreshAgentCatalog]);
+
+  const resetAgentForm = React.useCallback((): void => {
+    setAgentFormMode(null);
+    setAgentFormTargetId(null);
+    setAgentFormError("");
+    setAgentFormState("idle");
+  }, []);
+
+  const defaultAgentFormValues = React.useCallback((): AgentFormValues => ({
+    displayName: "",
+    handle: "",
+    role: "",
+    adapterType: "local-adapter",
+    model: "gpt-5-codex",
+    instructionsRef: "",
+    budgetCap: "",
+    isEnabled: true
+  }), []);
+
+  const findAgentProfile = React.useCallback(
+    (memberId: string | null): AgentSummary | null => {
+      if (!memberId) {
+        return null;
+      }
+      return agentCatalog.find((agent) => agent.member.id === memberId) ?? null;
+    },
+    [agentCatalog]
+  );
 
   React.useEffect(() => {
     if (!data) {
@@ -106,6 +184,8 @@ function App() {
     setArtifacts(data.artifacts);
     setActivity(data.activity);
     setThreadStates(data.threadStates);
+    setMiraMonitor(data.miraMonitor);
+    void refreshAgentCatalog().catch(() => setAnnounce("Could not load agent settings"));
   }, [data]);
 
   React.useEffect(() => {
@@ -123,7 +203,7 @@ function App() {
       setEventState("online");
       applyWorkspaceEvent(parsed, setMessages, setArtifacts);
       if (shouldRefreshWorkspaceSnapshot(parsed.type)) {
-        void refreshWorkspaceSnapshot().catch(() => setEventState("reconnecting"));
+        void refreshWorkspaceData().catch(() => setEventState("reconnecting"));
       }
       if (parsed.type === "message.created") {
         const message = parsed.payload.message as MessageSummary | undefined;
@@ -139,7 +219,7 @@ function App() {
     socket.addEventListener("error", () => setEventState("offline"));
 
     return () => socket.close();
-  }, [data, refreshWorkspaceSnapshot]);
+  }, [data, refreshWorkspaceData]);
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -184,6 +264,9 @@ function App() {
   const roomMessages = messages.filter(
     (message) => message.roomId === selectedRoom?.id && !message.parentMessageId && !message.deletedAt
   );
+  const selectedAgent = findAgentProfile(agentFormTargetId);
+
+  const isAgentFormSaving = agentFormState === "saving";
 
   function selectRoom(roomId: string): void {
     setSelectedRoomId(roomId);
@@ -257,6 +340,232 @@ function App() {
     setAnnounce("Decision submitted");
   }
 
+  const getAgentBudgetCap = React.useCallback((agent: AgentSummary | null): string => {
+    if (!agent) {
+      return "";
+    }
+    const policy = agent.profile.budgetPolicy;
+    const raw = policy.hourlyTokens;
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      return Number.isInteger(raw) ? String(raw) : String(raw);
+    }
+    if (typeof raw === "string") {
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) ? String(parsed) : "";
+    }
+    return "";
+  }, []);
+
+  const openCreateAgentForm = React.useCallback((): void => {
+    setAgentFormMode("create");
+    setAgentFormTargetId(null);
+    setAgentFormValues(defaultAgentFormValues());
+    setAgentFormError("");
+    setAgentFormState("idle");
+    setContextMode("roster");
+    setMobileTab("roster");
+  }, [defaultAgentFormValues]);
+
+  const openEditAgentForm = React.useCallback(
+    (memberId: string): void => {
+      const agent = findAgentProfile(memberId);
+      if (!agent) {
+        setAnnounce("Agent settings are still loading.");
+        return;
+      }
+      setAgentFormMode("edit");
+      setAgentFormTargetId(agent.member.id);
+      setAgentFormValues({
+        displayName: agent.member.displayName,
+        handle: agent.member.handle,
+        role: agent.member.role ?? "",
+        adapterType: agent.profile.adapterType,
+        model: agent.profile.model,
+        instructionsRef: agent.profile.instructionsRef ?? "",
+        budgetCap: getAgentBudgetCap(agent),
+        isEnabled: agent.profile.isEnabled
+      });
+      setAgentFormError("");
+      setAgentFormState("idle");
+      setContextMode("roster");
+      setMobileTab("roster");
+    },
+    [findAgentProfile, getAgentBudgetCap]
+  );
+
+  const closeAgentForm = React.useCallback((): void => {
+    resetAgentForm();
+  }, [resetAgentForm]);
+
+  async function submitAgentForm(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!currentMember) {
+      throw new Error("No current member available");
+    }
+    if (!agentFormMode) {
+      return;
+    }
+
+    if (!agentFormValues.displayName.trim() || !agentFormValues.handle.trim()) {
+      setAgentFormError("Display name and handle are required.");
+      setAgentFormState("failed");
+      return;
+    }
+
+    if (!agentFormValues.adapterType.trim() || !agentFormValues.model.trim()) {
+      setAgentFormError("Adapter type and model are required.");
+      setAgentFormState("failed");
+      return;
+    }
+
+    const budgetCap = agentFormValues.budgetCap.trim();
+    const budgetPolicy: Record<string, unknown> = {};
+    if (budgetCap) {
+      const parsedBudget = Number(budgetCap);
+      if (!Number.isFinite(parsedBudget) || parsedBudget < 0) {
+        setAgentFormError("Budget cap must be a non-negative number.");
+        setAgentFormState("failed");
+        return;
+      }
+      budgetPolicy.hourlyTokens = Math.trunc(parsedBudget);
+    }
+
+    setAgentFormState("saving");
+    setAgentFormError("");
+
+    const payload = {
+      displayName: agentFormValues.displayName.trim(),
+      handle: agentFormValues.handle.trim(),
+      role: agentFormValues.role.trim() || null,
+      adapterType: agentFormValues.adapterType.trim(),
+      model: agentFormValues.model.trim(),
+      instructionsRef: agentFormValues.instructionsRef.trim() || null,
+      budgetPolicy,
+      isEnabled: agentFormValues.isEnabled
+    };
+
+    try {
+      if (agentFormMode === "create") {
+        const response = await fetch(`/api/workspaces/${workspaceId}/agents`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ...payload,
+            createdByMemberId: currentMember.id
+          })
+        });
+        if (!response.ok) {
+          const detail = (await response.json().catch(() => ({ error: "Could not create agent" }))) as { error?: string };
+          throw new Error(detail.error ?? `Create agent failed with ${response.status}`);
+        }
+      } else {
+        if (!agentFormTargetId) {
+          throw new Error("No target agent selected");
+        }
+        const response = await fetch(`/api/workspaces/${workspaceId}/agents/${agentFormTargetId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ...payload,
+            updatedByMemberId: currentMember.id,
+            isEnabled: agentFormValues.isEnabled
+          })
+        });
+        if (!response.ok) {
+          const detail = (await response.json().catch(() => ({ error: "Could not update agent" }))) as { error?: string };
+          throw new Error(detail.error ?? `Update agent failed with ${response.status}`);
+        }
+      }
+      await refreshWorkspaceData();
+      closeAgentForm();
+      setAnnounce(agentFormMode === "create" ? "Agent created" : "Agent updated");
+    } catch (caught: unknown) {
+      setAgentFormError(caught instanceof Error ? caught.message : "Could not save agent");
+      setAgentFormState("failed");
+    }
+  }
+
+  async function removeCurrentAgent(): Promise<void> {
+    if (!agentFormMode || !agentFormTargetId || !currentMember) {
+      return;
+    }
+    if (!window.confirm(`Delete ${agentFormValues.displayName || "agent"}?`)) {
+      return;
+    }
+    setAgentFormState("saving");
+    setAgentFormError("");
+    try {
+      const response = await fetch(`/api/workspaces/${workspaceId}/agents/${agentFormTargetId}`, {
+        method: "DELETE"
+      });
+      if (!response.ok) {
+        const detail = (await response.json().catch(() => ({ error: "Could not delete agent" }))) as { error?: string };
+        throw new Error(detail.error ?? `Delete agent failed with ${response.status}`);
+      }
+      await refreshWorkspaceData();
+      closeAgentForm();
+      setAnnounce("Agent deleted (disabled)");
+    } catch (caught: unknown) {
+      setAgentFormError(caught instanceof Error ? caught.message : "Could not delete agent");
+      setAgentFormState("failed");
+    }
+  }
+
+  async function toggleCurrentAgentEnabled(nextEnabled: boolean): Promise<void> {
+    if (!agentFormMode || !agentFormTargetId || !currentMember) {
+      return;
+    }
+    setAgentFormState("saving");
+    setAgentFormError("");
+    try {
+      if (nextEnabled) {
+        const response = await fetch(`/api/workspaces/${workspaceId}/agents/${agentFormTargetId}/reactivate`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ updatedByMemberId: currentMember.id })
+        });
+        if (!response.ok) {
+          const detail = (await response.json().catch(() => ({ error: "Could not reactivate agent" }))) as { error?: string };
+          throw new Error(detail.error ?? `Reactivate agent failed with ${response.status}`);
+        }
+      } else {
+        const response = await fetch(`/api/workspaces/${workspaceId}/agents/${agentFormTargetId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ updatedByMemberId: currentMember.id, isEnabled: false })
+        });
+        if (!response.ok) {
+          const detail = (await response.json().catch(() => ({ error: "Could not disable agent" }))) as { error?: string };
+          throw new Error(detail.error ?? `Disable agent failed with ${response.status}`);
+        }
+      }
+      await refreshWorkspaceData();
+      closeAgentForm();
+      setAnnounce(nextEnabled ? "Agent reactivated" : "Agent disabled");
+    } catch (caught: unknown) {
+      setAgentFormError(caught instanceof Error ? caught.message : "Could not update agent status");
+      setAgentFormState("failed");
+    }
+  }
+
+  async function setMiraEnabled(enabled: boolean): Promise<void> {
+    const response = await fetch(`/api/workspaces/${workspaceId}/mira-monitor`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled })
+    });
+
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => ({ error: "Mira did not update" }))) as { error?: string };
+      throw new Error(detail.error ?? `Mira update failed with ${response.status}`);
+    }
+
+    const result = (await response.json()) as { miraMonitor: MiraMonitorSummary };
+    setMiraMonitor(result.miraMonitor);
+    await refreshWorkspaceSnapshot();
+    setAnnounce(enabled ? "Mira monitoring is on" : "Mira monitoring is off");
+  }
+
   function askForArtifactChanges(artifact: ArtifactSummary): void {
     const targetThreadId = artifact.threadId ?? threads.find((thread) => thread.parent.id === artifact.messageId)?.id;
     if (targetThreadId) {
@@ -282,6 +591,12 @@ function App() {
           setMobileTab("activity");
         }}
         currentMemberId={currentMember?.id ?? null}
+        miraMonitor={miraMonitor}
+        onOpenMira={() => {
+          setContextMode("mira");
+          setMobileTab("mira");
+        }}
+        onAddAgent={openCreateAgentForm}
       />
       <ConversationPane
         room={selectedRoom}
@@ -304,9 +619,12 @@ function App() {
         members={members}
         activity={activity}
         currentMember={currentMember}
+        miraMonitor={miraMonitor}
         room={selectedRoom}
         onModeChange={setContextMode}
         onJumpToRoom={selectRoom}
+        onSetMiraEnabled={setMiraEnabled}
+        onEditAgent={openEditAgentForm}
         onSendThreadReply={(body, mentions) => {
           if (!selectedThread) {
             throw new Error("No thread is selected");
@@ -316,6 +634,20 @@ function App() {
         onResolveDecision={resolveDecisionBlock}
         onAskForChanges={askForArtifactChanges}
       />
+      {agentFormMode ? (
+        <AgentSettingsModal
+          mode={agentFormMode}
+          agent={selectedAgent}
+          values={agentFormValues}
+          isSaving={isAgentFormSaving}
+          error={agentFormError}
+          onClose={closeAgentForm}
+          onSubmit={submitAgentForm}
+          onDelete={removeCurrentAgent}
+          onSetEnabled={toggleCurrentAgentEnabled}
+          onValuesChange={setAgentFormValues}
+        />
+      ) : null}
       <MobileTabs
         active={mobileTab}
         actionNeeded={getActionNeededCount(activity, currentMember?.id ?? null)}
@@ -326,6 +658,9 @@ function App() {
           }
           if (tab === "roster") {
             setContextMode("roster");
+          }
+          if (tab === "mira") {
+            setContextMode("mira");
           }
         }}
       />
@@ -357,8 +692,14 @@ function applyWorkspaceEvent(
 function shouldRefreshWorkspaceSnapshot(eventType: string): boolean {
   return [
     "artifact.created",
+    "agent.created",
+    "agent.disabled",
+    "agent.enabled",
+    "agent.removed",
+    "agent.updated",
     "decision.created",
     "decision.resolved",
+    "mira.monitor.updated",
     "message.updated",
     "session.created",
     "session.updated",
@@ -478,11 +819,15 @@ function LeftRail(props: {
   onSelectRoom(roomId: string): void;
   activity: ActivitySummary[];
   currentMemberId: string | null;
+  miraMonitor: MiraMonitorSummary | null;
   onOpenActivity(): void;
+  onOpenMira(): void;
+  onAddAgent(): void;
 }) {
   const channels = props.rooms.filter((room) => room.kind === "channel");
   const dms = props.rooms.filter((room) => room.kind === "dm");
   const actionsNeeded = getActionNeededCount(props.activity, props.currentMemberId);
+  const miraLabel = props.miraMonitor ? miraHealthLabel(props.miraMonitor.health) : "loading";
 
   function onRailKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
@@ -505,6 +850,10 @@ function LeftRail(props: {
       <button className="activity-button" type="button" onClick={props.onOpenActivity}>
         <span>Activity</span>
         <span className="badge" aria-label={`${actionsNeeded} items need attention`}>{actionsNeeded}</span>
+      </button>
+      <button className={`mira-rail-button ${props.miraMonitor?.health ?? "empty"}`} type="button" onClick={props.onOpenMira}>
+        <span>Mira</span>
+        <span>{miraLabel}</span>
       </button>
 
       <RailSection title="Channels">
@@ -538,7 +887,10 @@ function LeftRail(props: {
         })}
       </RailSection>
 
-      <button className="add-agent" type="button">+ Add agent</button>
+      <div className="rail-help">
+        <button className="add-agent" type="button" onClick={props.onAddAgent}>+ Add agent</button>
+        <a href="/docs/agent-configuration.md#add-agent" target="_blank" rel="noreferrer">Agent setup docs</a>
+      </div>
     </aside>
   );
 }
@@ -597,7 +949,9 @@ function ConversationPane(props: {
           <p>{props.room?.topic ?? "Workspace conversation"}</p>
         </div>
         <div className="header-actions">
+          <a className="doc-link" href="/docs/getting-started.md" target="_blank" rel="noreferrer">Docs</a>
           <ConnectionNotice state={props.eventState} />
+          <a className="icon-link" href="/docs/troubleshooting.md" target="_blank" rel="noreferrer" aria-label="Troubleshooting">?</a>
           <button type="button" aria-label="Search">⌕</button>
           <button type="button" aria-label="Toggle roster and activity" onClick={props.onToggleRoster}>☰</button>
         </div>
@@ -1025,9 +1379,12 @@ function ContextPane(props: {
   members: MemberSummary[];
   activity: ActivitySummary[];
   currentMember: MemberSummary | undefined;
+  miraMonitor: MiraMonitorSummary | null;
   room: RoomSummary | undefined;
   onModeChange(mode: ContextMode): void;
   onJumpToRoom(roomId: string): void;
+  onSetMiraEnabled(enabled: boolean): Promise<void>;
+  onEditAgent(memberId: string): void;
   onSendThreadReply(body: string, mentions: string[]): Promise<void>;
   onResolveDecision(block: Record<string, unknown>, result: Record<string, unknown>): Promise<void>;
   onAskForChanges(artifact: ArtifactSummary): void;
@@ -1041,6 +1398,7 @@ function ContextPane(props: {
         <button type="button" className={props.mode === "thread" ? "active" : ""} onClick={() => props.onModeChange("thread")}>Thread</button>
         <button type="button" className={props.mode === "roster" ? "active" : ""} onClick={() => props.onModeChange("roster")}>Roster</button>
         <button type="button" className={props.mode === "activity" ? "active" : ""} onClick={() => props.onModeChange("activity")}>Activity</button>
+        <button type="button" className={props.mode === "mira" ? "active" : ""} onClick={() => props.onModeChange("mira")}>Mira</button>
       </div>
 
       {props.mode === "thread" ? (
@@ -1056,7 +1414,7 @@ function ContextPane(props: {
       ) : null}
 
       {props.mode === "roster" ? (
-        <Roster agents={agents} humans={humans} />
+        <Roster agents={agents} humans={humans} onEditAgent={props.onEditAgent} />
       ) : null}
 
       {props.mode === "activity" ? (
@@ -1067,8 +1425,122 @@ function ContextPane(props: {
           onJumpToRoom={props.onJumpToRoom}
         />
       ) : null}
+
+      {props.mode === "mira" ? (
+        <MiraMonitorPanel
+          miraMonitor={props.miraMonitor}
+          member={props.members.find((member) => member.id === props.miraMonitor?.agentMemberId)}
+          onSetEnabled={props.onSetMiraEnabled}
+        />
+      ) : null}
     </aside>
   );
+}
+
+function MiraMonitorPanel(props: {
+  miraMonitor: MiraMonitorSummary | null;
+  member: MemberSummary | undefined;
+  onSetEnabled(enabled: boolean): Promise<void>;
+}) {
+  const [toggleState, setToggleState] = React.useState<"idle" | "saving" | "failed">("idle");
+  const [error, setError] = React.useState("");
+
+  if (!props.miraMonitor) {
+    return (
+      <section className="mira-panel">
+        <div className="pane-heading">
+          <h2>Mira</h2>
+          <span>loading</span>
+        </div>
+        <p className="empty-copy">Loading monitoring status.</p>
+      </section>
+    );
+  }
+
+  const { miraMonitor } = props;
+  const disabled = toggleState === "saving";
+
+  async function toggle(): Promise<void> {
+    setToggleState("saving");
+    setError("");
+    try {
+      await props.onSetEnabled(!miraMonitor.enabled);
+      setToggleState("idle");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Mira did not update");
+      setToggleState("failed");
+    }
+  }
+
+  return (
+    <section className={`mira-panel state-${miraMonitor.health}`} aria-label="Mira monitoring">
+      <div className="pane-heading">
+        <div>
+          <h2>Mira</h2>
+          <p>{props.member?.role ?? "Workspace monitor"}</p>
+        </div>
+        <span className={`mira-health ${miraMonitor.health}`}>{miraHealthLabel(miraMonitor.health)}</span>
+      </div>
+
+      <p className="mira-copy">
+        Mira watches workspace activity for stalled handoffs, fresh decisions, and agent work that needs attention.
+      </p>
+
+      <div className="mira-status-grid">
+        <div>
+          <span>State</span>
+          <strong>{miraMonitor.enabled ? "Monitoring" : "Off"}</strong>
+        </div>
+        <div>
+          <span>Last check</span>
+          <strong>{miraMonitor.lastCheckedAt ? formatDateTime(miraMonitor.lastCheckedAt) : "Not checked yet"}</strong>
+        </div>
+      </div>
+
+      <label className="mira-toggle">
+        <input type="checkbox" checked={miraMonitor.enabled} disabled={disabled} onChange={() => void toggle()} />
+        <span>{miraMonitor.enabled ? "Turn Mira off" : "Turn Mira on"}</span>
+      </label>
+      {toggleState === "saving" ? <p className="mira-note">Updating Mira...</p> : null}
+      {toggleState === "failed" ? <p className="mira-error">{error}</p> : null}
+
+      <MiraStateCopy miraMonitor={miraMonitor} />
+
+      <div className="mira-doc-link">
+        <a href="/docs/mira.md#where-to-see-mira-status" target="_blank" rel="noreferrer">Read how Mira works</a>
+      </div>
+
+      <div className="mira-activity">
+        <h3>Last hour</h3>
+        {miraMonitor.lastHourActivity.length === 0 ? (
+          <p className="empty-copy">No Mira checks or actions in the last hour.</p>
+        ) : (
+          <ol>
+            {miraMonitor.lastHourActivity.map((item) => (
+              <li className={`severity-${item.severity}`} key={item.id}>
+                <span>{formatTime(item.createdAt)}</span>
+                <strong>{miraActivityKindLabel(item.kind)}</strong>
+                <p>{item.summary}</p>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function MiraStateCopy(props: { miraMonitor: MiraMonitorSummary }) {
+  if (props.miraMonitor.health === "disabled") {
+    return <p className="mira-note">Mira will not start future monitoring checks or actions while it is off.</p>;
+  }
+  if (props.miraMonitor.health === "error") {
+    return <p className="mira-error">{props.miraMonitor.errorMessage ?? "Mira reported an error."}</p>;
+  }
+  if (props.miraMonitor.health === "empty") {
+    return <p className="mira-note">Mira is on. No monitor activity has happened in the last hour.</p>;
+  }
+  return <p className="mira-note">Mira is active and has recent monitor activity.</p>;
 }
 
 function ThreadPanel(props: {
@@ -1150,28 +1622,189 @@ function CompactMessage(props: {
   );
 }
 
-function Roster(props: { agents: MemberSummary[]; humans: MemberSummary[] }) {
+function Roster(props: { agents: MemberSummary[]; humans: MemberSummary[]; onEditAgent(memberId: string): void }) {
   return (
     <section>
       <div className="pane-heading">
-        <h2>Roster</h2>
+        <div>
+          <h2>Roster</h2>
+          <a className="subtle-link" href="/docs/agent-configuration.md#room-memberships" target="_blank" rel="noreferrer">
+            Agent settings
+          </a>
+        </div>
         <span>{props.agents.length} agents</span>
       </div>
       <div className="roster-list">
-        {[...props.agents, ...props.humans].map((member) => (
-          <div className="roster-row" key={member.id}>
-            <div className={`avatar ${member.kind === "agent" ? "agent" : "human"}`} aria-hidden="true">
-              {member.displayName.slice(0, 2).toUpperCase()}
-            </div>
-            <div>
-              <strong>{member.displayName}</strong>
-              <p>{member.role ?? member.kind} · {presenceText(member.presenceState)}</p>
-            </div>
-            <PresenceDot state={member.presenceState} />
-          </div>
-        ))}
+        {[...props.agents, ...props.humans].map((member) => {
+          const isAgent = member.kind === "agent";
+          return (
+            <button
+              className={`roster-row ${isAgent ? "is-agent" : "is-human"}`}
+              key={member.id}
+              type="button"
+              onClick={isAgent ? () => props.onEditAgent(member.id) : undefined}
+            >
+              <div className={`avatar ${isAgent ? "agent" : "human"}`} aria-hidden="true">
+                {member.displayName.slice(0, 2).toUpperCase()}
+              </div>
+              <div>
+                <strong>{member.displayName}</strong>
+                <p>{member.role ?? member.kind} · {presenceText(member.presenceState)}</p>
+              </div>
+              <div className="roster-meta">
+                {isAgent ? <span className="roster-action">Edit settings</span> : <PresenceDot state={member.presenceState} />}
+              </div>
+            </button>
+          );
+        })}
       </div>
     </section>
+  );
+}
+
+function AgentSettingsModal(props: {
+  mode: AgentFormMode;
+  agent: AgentSummary | null;
+  values: AgentFormValues;
+  isSaving: boolean;
+  error: string;
+  onClose(): void;
+  onSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void>;
+  onDelete(): Promise<void>;
+  onSetEnabled(nextEnabled: boolean): Promise<void>;
+  onValuesChange(values: AgentFormValues): void;
+}) {
+  const isCreate = props.mode === "create";
+  const isSaving = props.isSaving;
+  const actionLabel = isCreate ? "Create agent" : "Save agent changes";
+  const statusLabel = props.values.isEnabled ? "enabled" : "disabled";
+
+  React.useEffect(() => {
+    function onEsc(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        props.onClose();
+      }
+    }
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [props.onClose, props.agent?.member.displayName]);
+
+  function setField(field: keyof AgentFormValues, value: string | boolean): void {
+    props.onValuesChange({ ...props.values, [field]: value });
+  }
+
+  function closeOnScrim(event: React.MouseEvent<HTMLDivElement>): void {
+    if (event.target === event.currentTarget) {
+      props.onClose();
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={closeOnScrim}>
+      <section className="agent-settings-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="agent-settings-header">
+          <h2>{isCreate ? "Add agent" : `Edit ${props.agent?.member.displayName ?? "agent"}`}</h2>
+          <button type="button" onClick={props.onClose}>✕</button>
+        </header>
+        <form className="agent-settings-form" onSubmit={props.onSubmit}>
+          <label>
+            <span>Display name</span>
+            <input
+              value={props.values.displayName}
+              onChange={(event) => setField("displayName", event.target.value)}
+              required
+            />
+          </label>
+
+          <label>
+            <span>Handle</span>
+            <input
+              value={props.values.handle}
+              onChange={(event) => setField("handle", event.target.value)}
+              required
+            />
+          </label>
+
+          <label>
+            <span>Role</span>
+            <input
+              value={props.values.role}
+              onChange={(event) => setField("role", event.target.value)}
+            />
+          </label>
+
+          <label>
+            <span>Adapter type</span>
+            <input
+              value={props.values.adapterType}
+              onChange={(event) => setField("adapterType", event.target.value)}
+              required
+            />
+          </label>
+
+          <label>
+            <span>Model</span>
+            <input
+              value={props.values.model}
+              onChange={(event) => setField("model", event.target.value)}
+              required
+            />
+          </label>
+
+          <label>
+            <span>Instructions reference</span>
+            <input
+              value={props.values.instructionsRef}
+              placeholder="agents/example.md"
+              onChange={(event) => setField("instructionsRef", event.target.value)}
+            />
+          </label>
+
+          <label>
+            <span>Hourly token budget</span>
+            <input
+              type="number"
+              min="0"
+              value={props.values.budgetCap}
+              onChange={(event) => setField("budgetCap", event.target.value)}
+            />
+          </label>
+
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={props.values.isEnabled}
+              onChange={(event) => setField("isEnabled", event.target.checked)}
+            />
+            <span>Enabled</span>
+          </label>
+
+          <p className="agent-settings-meta">Current status: {statusLabel}</p>
+
+          {props.error ? <p className="agent-settings-error" role="alert">{props.error}</p> : null}
+
+          <div className="agent-settings-actions">
+            <button className="secondary" type="button" onClick={props.onClose}>Cancel</button>
+            <button type="submit" disabled={isSaving}>{isSaving ? "Saving..." : actionLabel}</button>
+          </div>
+
+          {!isCreate ? (
+            <div className="agent-settings-actions danger-zone">
+              <button
+                type="button"
+                onClick={() => {
+                  void props.onSetEnabled(!props.values.isEnabled);
+                }}
+                disabled={isSaving}
+              >
+                {props.values.isEnabled ? "Disable" : "Reactivate"}
+              </button>
+              <button type="button" className="danger" onClick={() => void props.onDelete()} disabled={isSaving}>Delete</button>
+            </div>
+          ) : null}
+        </form>
+      </section>
+    </div>
   );
 }
 
@@ -1187,7 +1820,12 @@ function ActivityList(props: {
   return (
     <section className="activity-card">
       <div className="pane-heading">
-        <h2>Activity</h2>
+        <div>
+          <h2>Activity</h2>
+          <a className="subtle-link" href="/docs/mira.md#where-to-see-mira-status" target="_blank" rel="noreferrer">
+            Mira status
+          </a>
+        </div>
         <span>{getActionNeededCount(props.activity, props.currentMemberId)} need you</span>
       </div>
       <ActivityGroup title="Action needed" items={actionNeeded} members={props.members} onJumpToRoom={props.onJumpToRoom} />
@@ -1235,6 +1873,7 @@ function Composer(props: {
   const mention = getMentionQuery(value);
   const mentionMatches = mention
     ? props.members
+        .filter((member) => member.isEnabled)
         .filter((member) => member.handle.toLowerCase().startsWith(mention.query.toLowerCase()))
         .slice(0, 5)
     : [];
@@ -1341,9 +1980,9 @@ function Composer(props: {
 }
 
 function MobileTabs(props: {
-  active: "chats" | "activity" | "roster";
+  active: MobileTab;
   actionNeeded: number;
-  onSelect(tab: "chats" | "activity" | "roster"): void;
+  onSelect(tab: MobileTab): void;
 }) {
   return (
     <nav className="mobile-tabs" aria-label="Primary">
@@ -1352,6 +1991,7 @@ function MobileTabs(props: {
         Activity <span>{props.actionNeeded}</span>
       </button>
       <button className={props.active === "roster" ? "active" : ""} type="button" onClick={() => props.onSelect("roster")}>Roster</button>
+      <button className={props.active === "mira" ? "active" : ""} type="button" onClick={() => props.onSelect("mira")}>Mira</button>
     </nav>
   );
 }
@@ -1382,6 +2022,30 @@ function presenceText(state: MemberSummary["presenceState"]): string {
   }
 }
 
+function miraHealthLabel(health: MiraMonitorSummary["health"]): string {
+  switch (health) {
+    case "active":
+      return "active";
+    case "disabled":
+      return "off";
+    case "error":
+      return "error";
+    default:
+      return "quiet";
+  }
+}
+
+function miraActivityKindLabel(kind: MiraMonitorSummary["lastHourActivity"][number]["kind"]): string {
+  switch (kind) {
+    case "check":
+      return "Check";
+    case "action":
+      return "Action";
+    default:
+      return "Note";
+  }
+}
+
 function renderMessageText(body: string, members: MemberSummary[]): React.ReactNode {
   const parts = body.split(/(@\w+)/g);
   return parts.map((part, index) => {
@@ -1405,12 +2069,21 @@ function getMentionQuery(value: string): { query: string; start: number; end: nu
 function extractMentionIds(body: string, members: MemberSummary[]): string[] {
   const handles = [...body.matchAll(/@([a-z0-9_-]+)/gi)].map((match) => match[1].toLowerCase());
   return members
-    .filter((member) => handles.includes(member.handle.toLowerCase()))
+    .filter((member) => member.isEnabled && handles.includes(member.handle.toLowerCase()))
     .map((member) => member.id);
 }
 
 function formatTime(value: string): string {
   return new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(new Date(value));
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
 }
 
 function formatBytes(value: number): string {
