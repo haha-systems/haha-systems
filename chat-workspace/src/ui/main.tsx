@@ -5,7 +5,8 @@ import type {
   BootstrapPayload,
   MemberSummary,
   MessageSummary,
-  RoomSummary
+  RoomSummary,
+  WorkspaceEvent
 } from "../shared/types";
 import "./styles.css";
 
@@ -13,6 +14,17 @@ const root = document.getElementById("root");
 
 if (!root) {
   throw new Error("Root element was not found");
+}
+
+type ContextMode = "thread" | "roster" | "activity";
+type SendState = "idle" | "sending" | "failed";
+
+interface ThreadSummary {
+  id: string;
+  parent: MessageSummary;
+  replies: MessageSummary[];
+  status: "working" | "waiting" | "done";
+  label: string;
 }
 
 function useBootstrap(): {
@@ -54,22 +66,39 @@ function useBootstrap(): {
 function App() {
   const { data, error } = useBootstrap();
   const [selectedRoomId, setSelectedRoomId] = React.useState<string | null>(null);
+  const [messages, setMessages] = React.useState<MessageSummary[]>([]);
   const [eventState, setEventState] = React.useState("connecting");
+  const [contextMode, setContextMode] = React.useState<ContextMode>("roster");
+  const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
+  const [mobileTab, setMobileTab] = React.useState<"chats" | "activity" | "roster">("chats");
+  const [announce, setAnnounce] = React.useState("");
+
+  React.useEffect(() => {
+    if (!data) {
+      return;
+    }
+    setSelectedRoomId((current) => current ?? data.rooms[0]?.id ?? null);
+    setMessages(data.messages);
+  }, [data]);
 
   React.useEffect(() => {
     if (!data) {
       return;
     }
 
-    setSelectedRoomId((current) => current ?? data.rooms[0]?.id ?? null);
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(
       `${protocol}//${window.location.host}/api/workspaces/${data.workspace.id}/events/ws?token=${data.eventToken}`
     );
 
     socket.addEventListener("message", (event) => {
-      const parsed = JSON.parse(String(event.data)) as { type: string; sequence: number };
-      setEventState(`${parsed.type} #${parsed.sequence}`);
+      const parsed = JSON.parse(String(event.data)) as WorkspaceEvent;
+      setEventState(parsed.type === "connection.ready" ? "live" : `${parsed.type} #${parsed.sequence}`);
+      applyWorkspaceEvent(parsed, setMessages);
+      if (parsed.type === "message.created") {
+        const message = parsed.payload.message as MessageSummary | undefined;
+        setAnnounce(message ? `New message: ${message.body}` : "New message received");
+      }
     });
     socket.addEventListener("open", () => setEventState("live"));
     socket.addEventListener("close", () => setEventState("reconnecting"));
@@ -77,6 +106,31 @@ function App() {
 
     return () => socket.close();
   }, [data]);
+
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLButtonElement ||
+        target?.isContentEditable;
+      if (isTyping) {
+        return;
+      }
+      if (event.key.toLowerCase() === "c") {
+        document.querySelector<HTMLInputElement>("[data-composer-input]")?.focus();
+      }
+      if (event.key.toLowerCase() === "t") {
+        const firstThread = selectedRoomId ? getThreads(messages).find((thread) => thread.parent.roomId === selectedRoomId) : null;
+        if (firstThread) {
+          openThread(firstThread.id);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [messages, selectedRoomId]);
 
   if (error) {
     return <div className="loading">Could not load workspace: {error}</div>;
@@ -86,9 +140,55 @@ function App() {
     return <div className="loading">Loading workspace...</div>;
   }
 
+  const currentMember = data.members.find((member) => member.kind === "human") ?? data.members[0];
+  const workspaceId = data.workspace.id;
   const selectedRoom = data.rooms.find((room) => room.id === selectedRoomId) ?? data.rooms[0];
-  const roomMessages = data.messages.filter((message) => message.roomId === selectedRoom?.id);
-  const agents = data.members.filter((member) => member.kind === "agent");
+  const threads = getThreads(messages);
+  const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
+  const roomMessages = messages.filter(
+    (message) => message.roomId === selectedRoom?.id && !message.parentMessageId && !message.deletedAt
+  );
+
+  function selectRoom(roomId: string): void {
+    setSelectedRoomId(roomId);
+    setSelectedThreadId(null);
+    setContextMode("roster");
+    setMobileTab("chats");
+  }
+
+  function openThread(threadId: string): void {
+    setSelectedThreadId(threadId);
+    setContextMode("thread");
+  }
+
+  async function sendMessage(roomId: string, body: string, mentions: string[], parentMessageId?: string): Promise<void> {
+    if (!currentMember) {
+      throw new Error("No current member available");
+    }
+
+    const sourceClientId = `ui:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+    const endpoint = parentMessageId ? `/api/messages/${parentMessageId}/replies` : `/api/rooms/${roomId}/messages`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        workspaceId,
+        authorMemberId: currentMember.id,
+        body,
+        mentions,
+        sourceClientId
+      })
+    });
+
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => ({ error: "Message failed" }))) as { error?: string };
+      throw new Error(detail.error ?? `Message failed with ${response.status}`);
+    }
+
+    const result = (await response.json()) as { message: MessageSummary };
+    mergeMessage(setMessages, result.message);
+    setAnnounce("Message sent");
+  }
 
   return (
     <main className="workspace-shell">
@@ -97,18 +197,141 @@ function App() {
         rooms={data.rooms}
         members={data.members}
         selectedRoomId={selectedRoom?.id ?? ""}
-        onSelectRoom={setSelectedRoomId}
+        onSelectRoom={selectRoom}
         activity={data.activity}
+        onOpenActivity={() => {
+          setContextMode("activity");
+          setMobileTab("activity");
+        }}
       />
       <ConversationPane
         room={selectedRoom}
         messages={roomMessages}
         members={data.members}
         eventState={eventState}
+        threads={threads}
+        currentMember={currentMember}
+        onOpenThread={openThread}
+        onToggleRoster={() => setContextMode((mode) => (mode === "roster" ? "activity" : "roster"))}
+        onSendMessage={(body, mentions) => selectedRoom && sendMessage(selectedRoom.id, body, mentions)}
       />
-      <ContextPane agents={agents} activity={data.activity} />
+      <ContextPane
+        mode={contextMode}
+        selectedThread={selectedThread}
+        members={data.members}
+        activity={data.activity}
+        currentMember={currentMember}
+        room={selectedRoom}
+        onModeChange={setContextMode}
+        onJumpToRoom={selectRoom}
+        onSendThreadReply={(body, mentions) => {
+          if (!selectedThread) {
+            throw new Error("No thread is selected");
+          }
+          return sendMessage(selectedThread.parent.roomId, body, mentions, selectedThread.parent.id);
+        }}
+      />
+      <MobileTabs
+        active={mobileTab}
+        actionNeeded={data.activity.filter((item) => item.state === "action_needed").length}
+        onSelect={(tab) => {
+          setMobileTab(tab);
+          if (tab === "activity") {
+            setContextMode("activity");
+          }
+          if (tab === "roster") {
+            setContextMode("roster");
+          }
+        }}
+      />
+      <div className="sr-only" aria-live="polite">{announce}</div>
     </main>
   );
+}
+
+function applyWorkspaceEvent(
+  event: WorkspaceEvent,
+  setMessages: React.Dispatch<React.SetStateAction<MessageSummary[]>>
+): void {
+  const message = event.payload.message as MessageSummary | undefined;
+  if (!message) {
+    return;
+  }
+  if (event.type === "message.created" || event.type === "message.updated" || event.type === "message.deleted") {
+    mergeMessage(setMessages, message);
+  }
+}
+
+function mergeMessage(
+  setMessages: React.Dispatch<React.SetStateAction<MessageSummary[]>>,
+  message: MessageSummary
+): void {
+  setMessages((current) => {
+    const existingIndex = current.findIndex(
+      (candidate) =>
+        candidate.id === message.id ||
+        (candidate.sourceClientId && message.sourceClientId && candidate.sourceClientId === message.sourceClientId)
+    );
+    if (existingIndex === -1) {
+      return [...current, message].sort(sortByCreatedAt);
+    }
+    const next = [...current];
+    next[existingIndex] = message;
+    return next.sort(sortByCreatedAt);
+  });
+}
+
+function sortByCreatedAt(left: MessageSummary, right: MessageSummary): number {
+  return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+}
+
+function getThreads(messages: MessageSummary[]): ThreadSummary[] {
+  const parents = new Map<string, MessageSummary>();
+  const repliesByParent = new Map<string, MessageSummary[]>();
+
+  for (const message of messages) {
+    if (!message.parentMessageId) {
+      parents.set(message.id, message);
+      continue;
+    }
+    const replies = repliesByParent.get(message.parentMessageId) ?? [];
+    replies.push(message);
+    repliesByParent.set(message.parentMessageId, replies);
+  }
+
+  return [...repliesByParent.entries()]
+    .map(([parentId, replies]) => {
+      const parent = parents.get(parentId);
+      if (!parent) {
+        return null;
+      }
+      const sortedReplies = replies.filter((reply) => !reply.deletedAt).sort(sortByCreatedAt);
+      const id = sortedReplies[0]?.threadId ?? parent.threadId ?? parent.id;
+      return {
+        id,
+        parent,
+        replies: sortedReplies,
+        status: deriveThreadStatus(sortedReplies),
+        label: deriveThreadLabel(parent)
+      };
+    })
+    .filter((thread): thread is ThreadSummary => Boolean(thread));
+}
+
+function deriveThreadStatus(messages: MessageSummary[]): ThreadSummary["status"] {
+  if (messages.some((message) => message.blocks.some((block) => block.type === "decision" && block.status !== "resolved"))) {
+    return "waiting";
+  }
+  if (messages.some((message) => message.blocks.some((block) => block.type === "progress") && message.authorKind === "agent")) {
+    return "working";
+  }
+  return "done";
+}
+
+function deriveThreadLabel(parent: MessageSummary): string {
+  const cleaned = parent.body.replace(/@\w+/g, "").replace(/[^\w\s-]/g, "").trim();
+  const words = cleaned.split(/\s+/).filter(Boolean).slice(0, 4);
+  return words.length > 0 ? words.join(" ") : "Thread";
 }
 
 function LeftRail(props: {
@@ -118,20 +341,33 @@ function LeftRail(props: {
   selectedRoomId: string;
   onSelectRoom(roomId: string): void;
   activity: ActivitySummary[];
+  onOpenActivity(): void;
 }) {
   const channels = props.rooms.filter((room) => room.kind === "channel");
   const dms = props.rooms.filter((room) => room.kind === "dm");
   const actionsNeeded = props.activity.filter((item) => item.state === "action_needed").length;
 
+  function onRailKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+      return;
+    }
+    const rooms = [...channels, ...dms];
+    const currentIndex = rooms.findIndex((room) => room.id === props.selectedRoomId);
+    const offset = event.key === "ArrowDown" ? 1 : -1;
+    const nextIndex = (currentIndex + offset + rooms.length) % rooms.length;
+    props.onSelectRoom(rooms[nextIndex].id);
+    event.preventDefault();
+  }
+
   return (
-    <aside className="rail" aria-label="Workspace conversations">
+    <aside className="rail" aria-label="Workspace conversations" onKeyDown={onRailKeyDown}>
       <div className="workspace-name">
         <span>{props.workspaceName}</span>
-        <span className="chevron">v</span>
+        <span className="chevron" aria-hidden="true">⌄</span>
       </div>
-      <button className="activity-button" type="button">
+      <button className="activity-button" type="button" onClick={props.onOpenActivity}>
         <span>Activity</span>
-        <span className="badge">{actionsNeeded}</span>
+        <span className="badge" aria-label={`${actionsNeeded} items need attention`}>{actionsNeeded}</span>
       </button>
 
       <RailSection title="Channels">
@@ -154,9 +390,11 @@ function LeftRail(props: {
               key={room.id}
               type="button"
               onClick={() => props.onSelectRoom(room.id)}
+              aria-current={room.id === props.selectedRoomId ? "page" : undefined}
             >
               {agent ? <PresenceDot state={agent.presenceState} /> : null}
               <span>{room.name}</span>
+              {agent ? <span className="state-word">{presenceText(agent.presenceState)}</span> : null}
               {room.unreadCount > 0 ? <span className="mini-badge">{room.unreadCount}</span> : null}
             </button>
           );
@@ -179,8 +417,13 @@ function RailSection(props: { title: string; children: React.ReactNode }) {
 
 function RoomButton(props: { room: RoomSummary; selected: boolean; onSelect(): void }) {
   return (
-    <button className={`rail-item ${props.selected ? "selected" : ""}`} type="button" onClick={props.onSelect}>
-      <span className="hash">#</span>
+    <button
+      className={`rail-item ${props.selected ? "selected" : ""}`}
+      type="button"
+      onClick={props.onSelect}
+      aria-current={props.selected ? "page" : undefined}
+    >
+      <span className="hash" aria-hidden="true">#</span>
       <span>{props.room.name}</span>
       {props.room.unreadCount > 0 ? <span className="mini-badge">{props.room.unreadCount}</span> : null}
     </button>
@@ -192,8 +435,19 @@ function ConversationPane(props: {
   messages: MessageSummary[];
   members: MemberSummary[];
   eventState: string;
+  threads: ThreadSummary[];
+  currentMember: MemberSummary | undefined;
+  onOpenThread(threadId: string): void;
+  onToggleRoster(): void;
+  onSendMessage(body: string, mentions: string[]): Promise<void>;
 }) {
+  const streamRef = React.useRef<HTMLDivElement | null>(null);
   const title = props.room?.kind === "channel" ? `# ${props.room.name}` : `DM · ${props.room?.name ?? ""}`;
+  const roomMembers = props.members.filter((member) => props.room?.memberIds.includes(member.id));
+
+  React.useEffect(() => {
+    streamRef.current?.scrollTo({ top: streamRef.current.scrollHeight, behavior: "smooth" });
+  }, [props.messages.length, props.room?.id]);
 
   return (
     <section className="conversation" aria-label="Conversation">
@@ -203,66 +457,92 @@ function ConversationPane(props: {
           <p>{props.room?.topic ?? "Workspace conversation"}</p>
         </div>
         <div className="header-actions">
-          <span className="socket-pill">{props.eventState}</span>
+          <span className={`socket-pill ${props.eventState === "offline" ? "offline" : ""}`}>{props.eventState}</span>
           <button type="button" aria-label="Search">⌕</button>
-          <button type="button" aria-label="Roster">☰</button>
+          <button type="button" aria-label="Toggle roster and activity" onClick={props.onToggleRoster}>☰</button>
         </div>
       </header>
 
-      <div className="message-stream">
+      <div className="message-stream" ref={streamRef}>
         {props.messages.map((message) => {
           const author = props.members.find((member) => member.id === message.authorMemberId);
-          return <MessageRow key={message.id} message={message} author={author} />;
+          const thread = props.threads.find((candidate) => candidate.parent.id === message.id);
+          return (
+            <MessageRow
+              key={message.id}
+              message={message}
+              author={author}
+              members={props.members}
+              thread={thread}
+              onOpenThread={props.onOpenThread}
+            />
+          );
         })}
       </div>
 
-      <form className="composer">
-        <label htmlFor="message">Message {props.room?.kind === "channel" ? `#${props.room.name}` : props.room?.name}</label>
-        <div>
-          <input id="message" placeholder="Write a message..." />
-          <button type="button" aria-label="Send message">➤</button>
-        </div>
-      </form>
+      {props.room ? (
+        <Composer
+          label={`Message ${props.room.kind === "channel" ? `#${props.room.name}` : props.room.name}`}
+          members={roomMembers}
+          onSend={props.onSendMessage}
+          autoFocus
+        />
+      ) : null}
     </section>
   );
 }
 
-function MessageRow(props: { message: MessageSummary; author: MemberSummary | undefined }) {
+function MessageRow(props: {
+  message: MessageSummary;
+  author: MemberSummary | undefined;
+  members: MemberSummary[];
+  thread: ThreadSummary | undefined;
+  onOpenThread(threadId: string): void;
+}) {
   const initials = props.author?.displayName.slice(0, 2).toUpperCase() ?? "--";
-  const time = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(
-    new Date(props.message.createdAt)
-  );
+  const time = formatTime(props.message.createdAt);
 
   return (
     <article className="message-row">
-      <div className={`avatar ${props.author?.kind === "agent" ? "agent" : "human"}`}>{initials}</div>
+      <div className={`avatar ${props.author?.kind === "agent" ? "agent" : "human"}`} aria-hidden="true">{initials}</div>
       <div className="message-body">
         <div className="message-meta">
           <strong>{props.author?.displayName ?? "Unknown"}</strong>
           {props.author ? <PresenceDot state={props.author.presenceState} /> : null}
+          {props.author?.kind === "agent" ? <span className="agent-tag">agent</span> : null}
           <span>{time}</span>
         </div>
-        <p>{props.message.body}</p>
+        <p>{renderMessageText(props.message.body, props.members)}</p>
         {props.message.blocks.map((block, index) => (
           <MessageBlock block={block} key={index} />
         ))}
-        {props.message.threadId ? (
-          <button className="thread-anchor" type="button">
-            ↳ Landing hero · waiting on you · 2 replies
-          </button>
-        ) : null}
+        {props.thread ? <ThreadAnchor thread={props.thread} onOpenThread={props.onOpenThread} /> : null}
       </div>
     </article>
   );
 }
 
+function ThreadAnchor(props: { thread: ThreadSummary; onOpenThread(threadId: string): void }) {
+  return (
+    <button className="thread-anchor" type="button" onClick={() => props.onOpenThread(props.thread.id)}>
+      <span aria-hidden="true">↳</span>
+      <span>{props.thread.label}</span>
+      <StatusChip status={props.thread.status} />
+      <span>{props.thread.replies.length} {props.thread.replies.length === 1 ? "reply" : "replies"}</span>
+    </button>
+  );
+}
+
 function MessageBlock(props: { block: Record<string, unknown> }) {
+  const [resolvedChoice, setResolvedChoice] = React.useState<string | null>(null);
+  const [choice, setChoice] = React.useState("");
+
   if (props.block.type === "progress") {
     const lines = Array.isArray(props.block.lines) ? props.block.lines.map(String) : [];
     return (
-      <div className="progress-block">
+      <div className="progress-block" role="status" aria-label="Progress">
         {lines.map((line) => (
-          <div key={line}>▹ {line}</div>
+          <div key={line}><span aria-hidden="true">▹</span> {line}</div>
         ))}
       </div>
     );
@@ -270,19 +550,33 @@ function MessageBlock(props: { block: Record<string, unknown> }) {
 
   if (props.block.type === "decision") {
     const options = Array.isArray(props.block.options) ? props.block.options.map(String) : [];
+    if (resolvedChoice) {
+      return (
+        <div className="decision-block resolved" role="group" aria-label="Decision resolved">
+          <div className="decision-title">✓ Decision resolved</div>
+          <p>You chose {resolvedChoice}.</p>
+        </div>
+      );
+    }
+
     return (
-      <div className="decision-block" role="group" aria-label="Decision pick one">
+      <div className="decision-block" role="group" aria-label={`Decision ${String(props.block.title ?? "answer")}`}>
         <div className="decision-title">◇ Decision · {String(props.block.title ?? "answer")}</div>
-        <p>Choose a direction so Ari can continue.</p>
+        <p>Choose a direction so the work can continue.</p>
         <div className="decision-options">
           {options.map((option) => (
             <label key={option}>
-              <input type="radio" name="direction" />
+              <input
+                type="radio"
+                name={`direction-${String(props.block.title ?? "decision")}`}
+                checked={choice === option}
+                onChange={() => setChoice(option)}
+              />
               <span>{option}</span>
             </label>
           ))}
         </div>
-        <button type="button">Submit</button>
+        <button type="button" disabled={!choice} onClick={() => setResolvedChoice(choice)}>Submit</button>
       </div>
     );
   }
@@ -290,46 +584,311 @@ function MessageBlock(props: { block: Record<string, unknown> }) {
   return null;
 }
 
-function ContextPane(props: { agents: MemberSummary[]; activity: ActivitySummary[] }) {
-  return (
-    <aside className="context-pane" aria-label="Workspace context">
-      <section>
-        <div className="pane-heading">
-          <h2>Roster</h2>
-          <span>{props.agents.length} agents</span>
-        </div>
-        <div className="roster-list">
-          {props.agents.map((agent) => (
-            <div className="roster-row" key={agent.id}>
-              <div className="avatar agent">{agent.displayName.slice(0, 2).toUpperCase()}</div>
-              <div>
-                <strong>{agent.displayName}</strong>
-                <p>{agent.role} · {presenceText(agent.presenceState)}</p>
-              </div>
-              <PresenceDot state={agent.presenceState} />
-            </div>
-          ))}
-        </div>
-      </section>
+function ContextPane(props: {
+  mode: ContextMode;
+  selectedThread: ThreadSummary | null;
+  members: MemberSummary[];
+  activity: ActivitySummary[];
+  currentMember: MemberSummary | undefined;
+  room: RoomSummary | undefined;
+  onModeChange(mode: ContextMode): void;
+  onJumpToRoom(roomId: string): void;
+  onSendThreadReply(body: string, mentions: string[]): Promise<void>;
+}) {
+  const agents = props.members.filter((member) => member.kind === "agent");
+  const humans = props.members.filter((member) => member.kind === "human");
 
-      <section className="activity-card">
-        <div className="pane-heading">
-          <h2>Activity</h2>
-          <span>derived</span>
-        </div>
-        {props.activity.map((item) => (
-          <div className="activity-row" key={item.id}>
-            <span>{item.state === "action_needed" ? "◐" : "✓"}</span>
-            <p>{item.summary}</p>
-          </div>
-        ))}
-      </section>
+  return (
+    <aside className={`context-pane mode-${props.mode}`} aria-label="Workspace context">
+      <div className="context-tabs" role="tablist" aria-label="Context views">
+        <button type="button" className={props.mode === "thread" ? "active" : ""} onClick={() => props.onModeChange("thread")}>Thread</button>
+        <button type="button" className={props.mode === "roster" ? "active" : ""} onClick={() => props.onModeChange("roster")}>Roster</button>
+        <button type="button" className={props.mode === "activity" ? "active" : ""} onClick={() => props.onModeChange("activity")}>Activity</button>
+      </div>
+
+      {props.mode === "thread" ? (
+        <ThreadPanel
+          thread={props.selectedThread}
+          members={props.members}
+          room={props.room}
+          onSendThreadReply={props.onSendThreadReply}
+        />
+      ) : null}
+
+      {props.mode === "roster" ? (
+        <Roster agents={agents} humans={humans} />
+      ) : null}
+
+      {props.mode === "activity" ? (
+        <ActivityList activity={props.activity} members={props.members} onJumpToRoom={props.onJumpToRoom} />
+      ) : null}
     </aside>
   );
 }
 
+function ThreadPanel(props: {
+  thread: ThreadSummary | null;
+  members: MemberSummary[];
+  room: RoomSummary | undefined;
+  onSendThreadReply(body: string, mentions: string[]): Promise<void>;
+}) {
+  if (!props.thread) {
+    return (
+      <section className="empty-thread">
+        <div className="pane-heading">
+          <h2>Thread</h2>
+          <span>none open</span>
+        </div>
+        <p>Select a thread in the conversation to keep ongoing work in view.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="thread-panel">
+      <div className="pane-heading">
+        <div>
+          <h2>{props.thread.label}</h2>
+          <p>{props.room?.kind === "channel" ? `#${props.room.name}` : props.room?.name}</p>
+        </div>
+        <StatusChip status={props.thread.status} />
+      </div>
+      <div className="thread-messages">
+        {[props.thread.parent, ...props.thread.replies].map((message) => {
+          const author = props.members.find((member) => member.id === message.authorMemberId);
+          return <CompactMessage key={message.id} message={message} author={author} />;
+        })}
+      </div>
+      <Composer
+        label="Reply in thread"
+        members={props.members.filter((member) => props.room?.memberIds.includes(member.id))}
+        onSend={props.onSendThreadReply}
+      />
+    </section>
+  );
+}
+
+function CompactMessage(props: { message: MessageSummary; author: MemberSummary | undefined }) {
+  return (
+    <article className="compact-message">
+      <div className="message-meta">
+        <strong>{props.author?.displayName ?? "Unknown"}</strong>
+        {props.author ? <PresenceDot state={props.author.presenceState} /> : null}
+        <span>{formatTime(props.message.createdAt)}</span>
+      </div>
+      <p>{props.message.body}</p>
+      {props.message.blocks.map((block, index) => (
+        <MessageBlock block={block} key={index} />
+      ))}
+    </article>
+  );
+}
+
+function Roster(props: { agents: MemberSummary[]; humans: MemberSummary[] }) {
+  return (
+    <section>
+      <div className="pane-heading">
+        <h2>Roster</h2>
+        <span>{props.agents.length} agents</span>
+      </div>
+      <div className="roster-list">
+        {[...props.agents, ...props.humans].map((member) => (
+          <div className="roster-row" key={member.id}>
+            <div className={`avatar ${member.kind === "agent" ? "agent" : "human"}`} aria-hidden="true">
+              {member.displayName.slice(0, 2).toUpperCase()}
+            </div>
+            <div>
+              <strong>{member.displayName}</strong>
+              <p>{member.role ?? member.kind} · {presenceText(member.presenceState)}</p>
+            </div>
+            <PresenceDot state={member.presenceState} />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ActivityList(props: {
+  activity: ActivitySummary[];
+  members: MemberSummary[];
+  onJumpToRoom(roomId: string): void;
+}) {
+  const actionNeeded = props.activity.filter((item) => item.state === "action_needed");
+  const recentlyDone = props.activity.filter((item) => item.state !== "action_needed");
+
+  return (
+    <section className="activity-card">
+      <div className="pane-heading">
+        <h2>Activity</h2>
+        <span>{actionNeeded.length} need you</span>
+      </div>
+      <ActivityGroup title="Action needed" items={actionNeeded} members={props.members} onJumpToRoom={props.onJumpToRoom} />
+      <ActivityGroup title="Recently done" items={recentlyDone} members={props.members} onJumpToRoom={props.onJumpToRoom} />
+    </section>
+  );
+}
+
+function ActivityGroup(props: {
+  title: string;
+  items: ActivitySummary[];
+  members: MemberSummary[];
+  onJumpToRoom(roomId: string): void;
+}) {
+  return (
+    <div className="activity-group">
+      <h3>{props.title}</h3>
+      {props.items.length === 0 ? <p className="empty-copy">You're all caught up.</p> : null}
+      {props.items.map((item) => {
+        const actor = props.members.find((member) => member.id === item.actorMemberId);
+        return (
+          <button className="activity-row" key={item.id} type="button" onClick={() => props.onJumpToRoom(item.roomId)}>
+            <span aria-hidden="true">{item.state === "action_needed" ? "◐" : "✓"}</span>
+            <span>
+              <strong>{actor?.displayName ?? "Workspace"}</strong>
+              <small>{item.summary}</small>
+            </span>
+            <span aria-hidden="true">→</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Composer(props: {
+  label: string;
+  members: MemberSummary[];
+  onSend(body: string, mentions: string[]): Promise<void>;
+  autoFocus?: boolean;
+}) {
+  const [value, setValue] = React.useState("");
+  const [sendState, setSendState] = React.useState<SendState>("idle");
+  const [activeMentionIndex, setActiveMentionIndex] = React.useState(0);
+  const mention = getMentionQuery(value);
+  const mentionMatches = mention
+    ? props.members
+        .filter((member) => member.handle.toLowerCase().startsWith(mention.query.toLowerCase()))
+        .slice(0, 5)
+    : [];
+
+  async function submit(): Promise<void> {
+    const trimmed = value.trim();
+    if (!trimmed || sendState === "sending") {
+      return;
+    }
+    setSendState("sending");
+    try {
+      await props.onSend(trimmed, extractMentionIds(trimmed, props.members));
+      setValue("");
+      setSendState("idle");
+    } catch {
+      setSendState("failed");
+    }
+  }
+
+  function chooseMention(member: MemberSummary): void {
+    if (!mention) {
+      return;
+    }
+    const next = `${value.slice(0, mention.start)}@${member.handle} ${value.slice(mention.end)}`;
+    setValue(next);
+    setActiveMentionIndex(0);
+  }
+
+  function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>): void {
+    if (mentionMatches.length > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      const offset = event.key === "ArrowDown" ? 1 : -1;
+      setActiveMentionIndex((current) => (current + offset + mentionMatches.length) % mentionMatches.length);
+      event.preventDefault();
+      return;
+    }
+    if (mentionMatches.length > 0 && (event.key === "Tab" || event.key === "Enter") && !event.shiftKey) {
+      chooseMention(mentionMatches[activeMentionIndex]);
+      event.preventDefault();
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey) {
+      void submit();
+      event.preventDefault();
+    }
+  }
+
+  return (
+    <form
+      className="composer"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <label htmlFor={`composer-${props.label}`}>{props.label}</label>
+      <div className="composer-control">
+        <input
+          id={`composer-${props.label}`}
+          data-composer-input
+          value={value}
+          placeholder="Write a message..."
+          autoComplete="off"
+          autoFocus={props.autoFocus}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setSendState("idle");
+          }}
+          onKeyDown={onKeyDown}
+          aria-describedby={sendState === "failed" ? "composer-error" : undefined}
+        />
+        <button type="submit" aria-label="Send message" disabled={!value.trim() || sendState === "sending"}>➤</button>
+      </div>
+      {mentionMatches.length > 0 ? (
+        <div className="mention-menu" role="listbox" aria-label="Mention suggestions">
+          {mentionMatches.map((member, index) => (
+            <button
+              key={member.id}
+              className={index === activeMentionIndex ? "active" : ""}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => chooseMention(member)}
+            >
+              <PresenceDot state={member.presenceState} />
+              <span>@{member.handle}</span>
+              <small>{member.role ?? member.kind}</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {sendState === "failed" ? <p className="composer-error" id="composer-error">Message did not send. Try again.</p> : null}
+    </form>
+  );
+}
+
+function MobileTabs(props: {
+  active: "chats" | "activity" | "roster";
+  actionNeeded: number;
+  onSelect(tab: "chats" | "activity" | "roster"): void;
+}) {
+  return (
+    <nav className="mobile-tabs" aria-label="Primary">
+      <button className={props.active === "chats" ? "active" : ""} type="button" onClick={() => props.onSelect("chats")}>Chats</button>
+      <button className={props.active === "activity" ? "active" : ""} type="button" onClick={() => props.onSelect("activity")}>
+        Activity <span>{props.actionNeeded}</span>
+      </button>
+      <button className={props.active === "roster" ? "active" : ""} type="button" onClick={() => props.onSelect("roster")}>Roster</button>
+    </nav>
+  );
+}
+
+function StatusChip(props: { status: ThreadSummary["status"] }) {
+  const labels = {
+    working: "● working",
+    waiting: "◐ waiting on you",
+    done: "✓ done"
+  };
+  return <span className={`status-chip ${props.status}`}>{labels[props.status]}</span>;
+}
+
 function PresenceDot(props: { state: MemberSummary["presenceState"] }) {
-  return <span className={`presence ${props.state}`} aria-label={presenceText(props.state)} />;
+  return <span className={`presence ${props.state}`} aria-label={presenceText(props.state)} title={presenceText(props.state)} />;
 }
 
 function presenceText(state: MemberSummary["presenceState"]): string {
@@ -343,6 +902,37 @@ function presenceText(state: MemberSummary["presenceState"]): string {
     default:
       return "idle";
   }
+}
+
+function renderMessageText(body: string, members: MemberSummary[]): React.ReactNode {
+  const parts = body.split(/(@\w+)/g);
+  return parts.map((part, index) => {
+    const handle = part.startsWith("@") ? part.slice(1).toLowerCase() : null;
+    const member = handle ? members.find((candidate) => candidate.handle.toLowerCase() === handle) : null;
+    return member ? <mark key={`${part}-${index}`}>{part}</mark> : <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>;
+  });
+}
+
+function getMentionQuery(value: string): { query: string; start: number; end: number } | null {
+  const cursor = value.length;
+  const beforeCursor = value.slice(0, cursor);
+  const match = beforeCursor.match(/(^|\s)@([a-z0-9_-]*)$/i);
+  if (!match || match.index === undefined) {
+    return null;
+  }
+  const start = match.index + match[1].length;
+  return { query: match[2], start, end: cursor };
+}
+
+function extractMentionIds(body: string, members: MemberSummary[]): string[] {
+  const handles = [...body.matchAll(/@([a-z0-9_-]+)/gi)].map((match) => match[1].toLowerCase());
+  return members
+    .filter((member) => handles.includes(member.handle.toLowerCase()))
+    .map((member) => member.id);
+}
+
+function formatTime(value: string): string {
+  return new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 
 createRoot(root).render(
