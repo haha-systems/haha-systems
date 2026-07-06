@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type {
   ActivitySummary,
+  AgentProfileSummary,
+  AgentSummary,
   ArtifactKind,
   ArtifactPreview,
   ArtifactSummary,
@@ -9,6 +11,8 @@ import type {
   DecisionBlockStatus,
   DecisionBlockSummary,
   MemberSummary,
+  MiraMonitorActivitySummary,
+  MiraMonitorSummary,
   MessageSummary,
   RoomSummary,
   ThreadStateSummary,
@@ -69,6 +73,25 @@ type ActivityRow = {
   summary: string;
   sort_at: Date | string;
 };
+type AgentRow = {
+  member_id: string;
+  workspace_id: string;
+  kind: MemberSummary["kind"];
+  display_name: string;
+  handle: string;
+  role: string | null;
+  presence_state: MemberSummary["presenceState"];
+  profile_id: string;
+  adapter_type: string;
+  model: string;
+  instructions_ref: string | null;
+  capabilities_json: JsonValue;
+  budget_policy_json: JsonValue;
+  is_enabled: boolean;
+  profile_created_at: Date | string;
+  profile_updated_at: Date | string;
+  dm_room_id: string | null;
+};
 type ThreadStateRow = {
   id: string;
   workspace_id: string;
@@ -112,6 +135,45 @@ type WakeEventRow = {
   reason_json: JsonValue;
   created_at: Date | string;
   updated_at: Date | string;
+};
+type AgentTargetLookup = {
+  member_id: string;
+  kind: MemberSummary["kind"];
+  handle: string;
+  adapter_type: string;
+  model: string;
+  is_enabled: boolean;
+};
+type AgentRoutingTarget = {
+  memberId: string;
+  handle: string;
+  adapterType: string;
+  model: string;
+  isEnabled: boolean;
+};
+type AgentRoutingResult = {
+  targets: AgentRoutingTarget[];
+  disabledIds: string[];
+  missingIds: string[];
+};
+type MiraMonitorRow = {
+  id: string;
+  workspace_id: string;
+  agent_member_id: string;
+  enabled: boolean;
+  last_checked_at: Date | string | null;
+  last_error: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+};
+type MiraMonitorActivityRow = {
+  id: string;
+  workspace_id: string;
+  agent_member_id: string;
+  event_kind: string;
+  severity: string;
+  summary: string;
+  created_at: Date | string;
 };
 
 export class ChatRepositoryError extends Error {
@@ -164,6 +226,39 @@ export interface CreateArtifactInput {
   retentionPolicy?: string;
 }
 
+export interface CreateAgentInput {
+  workspaceId?: string;
+  createdByMemberId: string;
+  displayName: string;
+  handle: string;
+  role?: string | null;
+  avatarUrl?: string | null;
+  timezone?: string | null;
+  adapterType?: string;
+  model?: string;
+  instructionsRef?: string | null;
+  capabilities?: Record<string, unknown>;
+  budgetPolicy?: Record<string, unknown>;
+  isEnabled?: boolean;
+}
+
+export interface UpdateAgentInput {
+  workspaceId: string;
+  memberId: string;
+  updatedByMemberId: string;
+  displayName?: string;
+  handle?: string;
+  role?: string | null;
+  avatarUrl?: string | null;
+  timezone?: string | null;
+  adapterType?: string;
+  model?: string;
+  instructionsRef?: string | null;
+  capabilities?: Record<string, unknown>;
+  budgetPolicy?: Record<string, unknown>;
+  isEnabled?: boolean;
+}
+
 export interface CreateDecisionBlockInput {
   messageId: string;
   createdByAgentMemberId: string;
@@ -201,6 +296,16 @@ export interface DecisionBlockMutationResult {
   idempotent?: boolean;
 }
 
+export interface MiraMonitorMutationResult {
+  miraMonitor: MiraMonitorSummary;
+  events: WorkspaceEvent[];
+}
+
+export interface AgentMutationResult {
+  agent: AgentSummary;
+  events: WorkspaceEvent[];
+}
+
 function parseJsonArray(value: JsonValue): Array<Record<string, unknown>> {
   if (Array.isArray(value)) {
     return value as Array<Record<string, unknown>>;
@@ -230,6 +335,23 @@ function parseJsonObject(value: JsonValue): Record<string, unknown> {
     return value;
   }
   return {};
+}
+
+function dedupeIds(values: string[]): string[] {
+  const output: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (!seen.has(value)) {
+      seen.add(value);
+      output.push(value);
+    }
+  }
+  return output;
+}
+
+function safeUuid(value: string): string | null {
+  const text = value.trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text) ? text : null;
 }
 
 function iso(value: Date | string): string {
@@ -298,6 +420,35 @@ function mapActivity(item: ActivityRow): ActivitySummary {
   };
 }
 
+function mapAgent(row: AgentRow): AgentSummary {
+  return {
+    member: {
+      id: row.member_id,
+      workspaceId: row.workspace_id,
+      kind: "agent",
+      displayName: row.display_name,
+      handle: row.handle,
+      role: row.role,
+      presenceState: row.is_enabled ? row.presence_state : "offline",
+      isEnabled: row.is_enabled
+    },
+    profile: {
+      id: row.profile_id,
+      workspaceId: row.workspace_id,
+      memberId: row.member_id,
+      adapterType: row.adapter_type,
+      model: row.model,
+      instructionsRef: row.instructions_ref,
+      capabilities: parseJsonObject(row.capabilities_json),
+      budgetPolicy: parseJsonObject(row.budget_policy_json),
+      isEnabled: row.is_enabled,
+      createdAt: iso(row.profile_created_at),
+      updatedAt: iso(row.profile_updated_at)
+    },
+    dmRoomId: row.dm_room_id
+  };
+}
+
 function mapThreadState(thread: ThreadStateRow): ThreadStateSummary {
   return {
     id: thread.id,
@@ -351,6 +502,54 @@ function mapWakeEvent(row: WakeEventRow): WakeEventSummary {
   };
 }
 
+function toMiraActivityKind(value: string): MiraMonitorActivitySummary["kind"] {
+  if (value === "check" || value === "action" || value === "note") {
+    return value;
+  }
+  return "note";
+}
+
+function toMiraActivitySeverity(value: string): MiraMonitorActivitySummary["severity"] {
+  if (value === "info" || value === "warning" || value === "error") {
+    return value;
+  }
+  return "info";
+}
+
+function mapMiraMonitorActivity(row: MiraMonitorActivityRow): MiraMonitorActivitySummary {
+  return {
+    id: row.id,
+    kind: toMiraActivityKind(row.event_kind),
+    summary: row.summary,
+    severity: toMiraActivitySeverity(row.severity),
+    createdAt: iso(row.created_at)
+  };
+}
+
+function mapMiraMonitor(
+  row: MiraMonitorRow,
+  lastHourActivity: MiraMonitorActivitySummary[]
+): MiraMonitorSummary {
+  const health: MiraMonitorSummary["health"] = !row.enabled
+    ? "disabled"
+    : row.last_error
+      ? "error"
+      : lastHourActivity.length > 0
+        ? "active"
+        : "empty";
+
+  return {
+    workspaceId: row.workspace_id,
+    agentMemberId: row.agent_member_id,
+    enabled: row.enabled,
+    health,
+    lastCheckedAt: isoNullable(row.last_checked_at),
+    errorMessage: row.last_error,
+    lastHourActivity,
+    updatedAt: iso(row.updated_at)
+  };
+}
+
 function toDecisionBlockKind(value: unknown): DecisionBlockKind {
   if (value === "approve_reject" || value === "short_question" || value === "pick_one") {
     return value;
@@ -376,9 +575,26 @@ function cleanText(value: unknown, maxLength: number): string | undefined {
   return normalized.slice(0, maxLength);
 }
 
+function cleanHandle(value: unknown): string | undefined {
+  const normalized = cleanText(value, 80)?.toLowerCase();
+  if (!normalized || !/^[a-z0-9][a-z0-9_-]{1,79}$/.test(normalized)) {
+    return undefined;
+  }
+  return normalized;
+}
+
 function cleanNullableText(value: unknown, maxLength: number): string | null {
   return cleanText(value, maxLength) ?? null;
 }
+
+function cleanJsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+const ROUTING_POLICY_VERSION = "chat-workspace:v1";
 
 function cleanUrl(value: unknown): string | undefined {
   if (typeof value !== "string" || value.length > 2048) {
@@ -798,6 +1014,329 @@ async function findMessageBySourceClientId(
   return result.rows[0] ? mapMessage(result.rows[0]) : null;
 }
 
+async function loadMentionTargets(
+  client: SqlClient,
+  workspaceId: string,
+  mentionIds: string[]
+): Promise<AgentRoutingResult> {
+  const unique = dedupeIds(mentionIds.map((id) => id.trim()).filter((id) => safeUuid(id)));
+  if (unique.length === 0) {
+    return { targets: [], disabledIds: [], missingIds: [] };
+  }
+
+  const result = await client.query<AgentTargetLookup>(
+    `
+    SELECT
+      members.id AS member_id,
+      members.kind,
+      members.handle,
+      COALESCE(agent_profiles.adapter_type, 'local-adapter') AS adapter_type,
+      COALESCE(agent_profiles.model, 'gpt-5-codex') AS model,
+      COALESCE(agent_profiles.is_enabled, false) AS is_enabled
+    FROM members
+    LEFT JOIN agent_profiles
+      ON agent_profiles.workspace_id = members.workspace_id
+      AND agent_profiles.member_id = members.id
+    WHERE members.workspace_id = $1
+      AND members.id = ANY($2::uuid[])
+    `,
+    [workspaceId, unique]
+  );
+
+  const byId = new Map<string, AgentTargetLookup>(result.rows.map((row) => [row.member_id, row]));
+  const found = new Set(result.rows.map((row) => row.member_id));
+  const disabledIds = unique.filter((id) => {
+    const row = byId.get(id);
+    return row?.kind === "agent" && row?.is_enabled === false;
+  });
+  const missingIds = unique.filter((id) => !found.has(id));
+  const targets = result.rows
+    .filter((row): row is AgentTargetLookup => row.kind === "agent" && row.is_enabled)
+    .map((row) => ({
+      memberId: row.member_id,
+      handle: row.handle,
+      adapterType: row.adapter_type,
+      model: row.model,
+      isEnabled: row.is_enabled
+    }));
+
+  return { targets, disabledIds, missingIds };
+}
+
+async function loadDirectMessageTargets(client: SqlClient, roomId: string, senderMemberId: string): Promise<AgentRoutingResult> {
+  const result = await client.query<AgentTargetLookup>(
+    `
+    SELECT
+      members.id AS member_id,
+      members.kind,
+      members.handle,
+      COALESCE(agent_profiles.adapter_type, 'local-adapter') AS adapter_type,
+      COALESCE(agent_profiles.model, 'gpt-5-codex') AS model,
+      COALESCE(agent_profiles.is_enabled, false) AS is_enabled
+    FROM dm_participants
+    INNER JOIN members
+      ON members.id = dm_participants.member_id
+      AND dm_participants.room_id = $1
+      AND members.kind = 'agent'
+      AND members.id <> $2
+    INNER JOIN rooms
+      ON rooms.id = dm_participants.room_id
+    LEFT JOIN agent_profiles
+      ON agent_profiles.workspace_id = rooms.workspace_id
+      AND agent_profiles.member_id = members.id
+    `,
+    [roomId, senderMemberId]
+  );
+
+  return {
+    targets: result.rows
+      .filter((row): row is AgentTargetLookup => row.kind === "agent" && row.is_enabled)
+      .map((row) => ({
+        memberId: row.member_id,
+        handle: row.handle,
+        adapterType: row.adapter_type,
+        model: row.model,
+        isEnabled: row.is_enabled
+      })),
+    disabledIds: result.rows.filter((row) => row.kind === "agent" && !row.is_enabled).map((row) => row.member_id),
+    missingIds: []
+  };
+}
+
+function buildAgentProgressMessage(handle: string): string {
+  return `${handle} is now processing your message.`;
+}
+
+async function createAgentProgressMessage(
+  client: SqlClient,
+  input: {
+    workspaceId: string;
+    roomId: string;
+    threadId: string | null;
+    authorMemberId: string;
+    body: string;
+  }
+): Promise<MessageSummary> {
+  const messageId = randomUUID();
+  const body = input.body;
+  await client.query(
+    `
+    INSERT INTO messages(
+      id,
+      workspace_id,
+      room_id,
+      thread_id,
+      author_member_id,
+      author_kind,
+      body,
+      body_format,
+      blocks_json,
+      mentions_json
+    )
+    VALUES ($1, $2, $3, $4, $5, 'agent', $6, 'plain', $7::jsonb, '[]'::jsonb)
+    `,
+      [
+        messageId,
+        input.workspaceId,
+        input.roomId,
+        input.threadId,
+        input.authorMemberId,
+        body,
+        JSON.stringify([
+          {
+            type: "progress",
+            mode: "ack",
+            lines: [body]
+          }
+        ])
+      ]
+    );
+    await client.query("UPDATE rooms SET last_message_id = $2, updated_at = now() WHERE id = $1", [input.roomId, messageId]);
+  return await loadMessageById(client, messageId);
+}
+
+async function createAgentWakeAndSession(
+  client: SqlClient,
+  workspaceId: string,
+  roomId: string,
+  threadId: string | null,
+  triggerKind: string,
+  triggerMessageId: string,
+  target: AgentRoutingTarget
+): Promise<{ wakeEvent?: WakeEventSummary; message?: MessageSummary }> {
+  const dedupeKey = `agent:${triggerKind}:${triggerMessageId}:${target.memberId}`;
+  const existingWakeResult = await client.query<WakeEventRow>(
+    `
+    SELECT id, workspace_id, room_id, thread_id, trigger_kind, trigger_message_id, trigger_decision_block_id,
+      target_agent_member_id, routing_policy_version, dedupe_key, status, reason_json, created_at, updated_at
+    FROM wake_events
+    WHERE workspace_id = $1
+      AND dedupe_key = $2
+      AND status NOT IN ('completed', 'cancelled', 'failed')
+    LIMIT 1
+    `,
+    [workspaceId, dedupeKey]
+  );
+
+  let wakeEvent = existingWakeResult.rows[0] ? mapWakeEvent(existingWakeResult.rows[0]) : null;
+  let created = false;
+
+  if (!wakeEvent) {
+    const wakeInsert = await client.query<WakeEventRow>(
+      `
+      INSERT INTO wake_events(
+        id, workspace_id, room_id, thread_id, trigger_kind, trigger_message_id,
+        target_agent_member_id, routing_policy_version, dedupe_key, status, reason_json
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'queued', $10::jsonb)
+      RETURNING id, workspace_id, room_id, thread_id, trigger_kind, trigger_message_id, trigger_decision_block_id,
+        target_agent_member_id, routing_policy_version, dedupe_key, status, reason_json, created_at, updated_at
+      `,
+      [
+        randomUUID(),
+        workspaceId,
+        roomId,
+        threadId,
+        triggerKind,
+        triggerMessageId,
+        target.memberId,
+        ROUTING_POLICY_VERSION,
+        dedupeKey,
+        JSON.stringify({ roomId, threadId, targetAgentMemberId: target.memberId, triggerMessageId })
+      ]
+    );
+    wakeEvent = mapWakeEvent(wakeInsert.rows[0]);
+    created = true;
+
+    const sessionId = randomUUID();
+    await client.query(
+      `
+      INSERT INTO agent_sessions(
+        id, workspace_id, agent_member_id, room_id, thread_id, state, adapter_type, model,
+        budget_limit_json, usage_json, loop_depth, session_ref, started_at, finished_at, last_output_at
+      )
+      VALUES ($1, $2, $3, $4, $5, 'queued', $6, $7, '{}'::jsonb, '{}'::jsonb, 0, $8, NULL, NULL, NULL)
+      `,
+      [
+        sessionId,
+        workspaceId,
+        target.memberId,
+        roomId,
+        threadId,
+        target.adapterType,
+        target.model,
+        wakeEvent.id
+      ]
+    );
+  }
+
+  return {
+    wakeEvent: wakeEvent ?? undefined,
+    message: created
+      ? await createAgentProgressMessage(client, {
+          workspaceId,
+          roomId,
+          threadId,
+          authorMemberId: target.memberId,
+          body: buildAgentProgressMessage(target.handle)
+        })
+      : undefined
+  };
+}
+
+async function routeMessageToAgents(
+  client: SqlClient,
+  room: { id: string; kind: RoomSummary["kind"]; workspaceId: string },
+  message: MessageSummary,
+  authorKind: MemberSummary["kind"],
+  mentions: string[]
+): Promise<{ wakeEvents: WakeEventSummary[]; messages: MessageSummary[]; events: WorkspaceEvent[] }> {
+  if (authorKind !== "human") {
+    return { wakeEvents: [], messages: [], events: [] };
+  }
+
+  const dedupedMentions = dedupeIds(mentions.map((id) => id.trim()).filter((id) => safeUuid(id)));
+
+  if (room.kind === "dm") {
+    const dmTargets = await loadDirectMessageTargets(client, room.id, message.authorMemberId);
+    if (dmTargets.targets.length === 0) {
+      if (dmTargets.disabledIds.length > 0) {
+        throw new ChatRepositoryError("DM participants include disabled or removed agents", 403);
+      }
+      return { wakeEvents: [], messages: [], events: [] };
+    }
+
+    return processAgentRoutes(client, room, message, dmTargets.targets, "dm_message");
+  }
+
+  if (dedupedMentions.length === 0) {
+    return { wakeEvents: [], messages: [], events: [] };
+  }
+
+  const mentionTargets = await loadMentionTargets(client, room.workspaceId, dedupedMentions);
+  if (mentionTargets.targets.length === 0) {
+    return { wakeEvents: [], messages: [], events: [] };
+  }
+
+  return processAgentRoutes(client, room, message, mentionTargets.targets, "mention");
+}
+
+async function processAgentRoutes(
+  client: SqlClient,
+  room: { id: string; kind: RoomSummary["kind"]; workspaceId: string },
+  message: MessageSummary,
+  targets: AgentRoutingTarget[],
+  triggerKind: "mention" | "dm_message"
+): Promise<{ wakeEvents: WakeEventSummary[]; messages: MessageSummary[]; events: WorkspaceEvent[] }> {
+  const wakeEvents: WakeEventSummary[] = [];
+  const progressMessages: MessageSummary[] = [];
+  const events: WorkspaceEvent[] = [];
+
+  const dedupedTargets = dedupeIds(targets.map((target) => target.memberId));
+  const uniqueTargets: AgentRoutingTarget[] = dedupedTargets
+    .map((targetId) => targets.find((candidate) => candidate.memberId === targetId))
+    .filter((target): target is AgentRoutingTarget => Boolean(target));
+
+  for (const target of uniqueTargets) {
+    const { wakeEvent, message: progressMessage } = await createAgentWakeAndSession(
+      client,
+      room.workspaceId,
+      room.id,
+      message.threadId,
+      triggerKind,
+      message.id,
+      target
+    );
+    if (wakeEvent) {
+      wakeEvents.push(wakeEvent);
+      const wakeEventRecord = await appendEvent(
+        client,
+        room.workspaceId,
+        "wake.queued",
+        "wake",
+        wakeEvent.id,
+        { wakeEvent }
+      );
+      events.push(wakeEventRecord);
+    }
+    if (progressMessage) {
+      progressMessages.push(progressMessage);
+      const progressMessageRecord = await appendEvent(
+        client,
+        room.workspaceId,
+        "message.created",
+        "message",
+        progressMessage.id,
+        { message: progressMessage }
+      );
+      events.push(progressMessageRecord);
+    }
+  }
+
+  return { wakeEvents, messages: progressMessages, events };
+}
+
+
 async function appendEvent(
   client: SqlClient,
   workspaceId: string,
@@ -862,6 +1401,64 @@ async function loadMessageById(client: SqlClient, messageId: string): Promise<Me
   return mapMessage(result.rows[0]);
 }
 
+async function loadAgentByMemberId(
+  client: SqlClient,
+  workspaceId: string,
+  memberId: string,
+  viewerMemberId?: string
+): Promise<AgentSummary> {
+  const result = await client.query<AgentRow>(
+    `
+    SELECT
+      members.id AS member_id,
+      members.workspace_id,
+      members.kind,
+      members.display_name,
+      members.handle,
+      members.role,
+      members.presence_state,
+      agent_profiles.id AS profile_id,
+      agent_profiles.adapter_type,
+      agent_profiles.model,
+      agent_profiles.instructions_ref,
+      agent_profiles.capabilities_json,
+      agent_profiles.budget_policy_json,
+      agent_profiles.is_enabled,
+      agent_profiles.created_at AS profile_created_at,
+      agent_profiles.updated_at AS profile_updated_at,
+      (
+        SELECT rooms.id
+        FROM rooms
+        INNER JOIN dm_participants agent_dm
+          ON agent_dm.room_id = rooms.id
+          AND agent_dm.member_id = members.id
+        INNER JOIN dm_participants viewer_dm
+          ON viewer_dm.room_id = rooms.id
+          AND ($3::uuid IS NULL OR viewer_dm.member_id = $3::uuid)
+        WHERE rooms.workspace_id = members.workspace_id
+          AND rooms.kind = 'dm'
+          AND rooms.archived_at IS NULL
+        ORDER BY rooms.created_at ASC, rooms.id ASC
+        LIMIT 1
+      ) AS dm_room_id
+    FROM members
+    INNER JOIN agent_profiles
+      ON agent_profiles.workspace_id = members.workspace_id
+      AND agent_profiles.member_id = members.id
+    WHERE members.workspace_id = $1
+      AND members.id = $2
+      AND members.kind = 'agent'
+    `,
+    [workspaceId, memberId, viewerMemberId ?? null]
+  );
+
+  if (result.rows.length === 0) {
+    throw new ChatRepositoryError("Agent was not found", 404);
+  }
+
+  return mapAgent(result.rows[0]);
+}
+
 async function updateThreadActivity(
   client: SqlClient,
   threadId: string,
@@ -921,6 +1518,370 @@ async function findDecisionBlockByIdempotencyKey(
     [workspaceId, idempotencyKey]
   );
   return result.rows[0] ? mapDecisionBlock(result.rows[0]) : null;
+}
+
+async function ensureWorkspaceMember(
+  client: SqlClient,
+  workspaceId: string,
+  memberId: string,
+  expectedKind?: MemberSummary["kind"]
+): Promise<MemberSummary["kind"]> {
+  const kind = await getMemberKind(client, workspaceId, memberId);
+  if (expectedKind && kind !== expectedKind) {
+    throw new ChatRepositoryError(`Only ${expectedKind}s can perform this action`, 403);
+  }
+  return kind;
+}
+
+async function ensureHandleAvailable(
+  client: SqlClient,
+  workspaceId: string,
+  handle: string,
+  exceptMemberId?: string
+): Promise<void> {
+  const duplicate = await client.query<{ id: string }>(
+    `
+    SELECT id
+    FROM members
+    WHERE workspace_id = $1
+      AND handle = $2
+      AND ($3::uuid IS NULL OR id <> $3::uuid)
+    LIMIT 1
+    `,
+    [workspaceId, handle, exceptMemberId ?? null]
+  );
+  if (duplicate.rows.length > 0) {
+    throw new ChatRepositoryError("Agent handle is already in use", 409);
+  }
+}
+
+async function cancelActiveAgentWork(client: SqlClient, workspaceId: string, memberId: string): Promise<void> {
+  await client.query(
+    `
+    UPDATE wake_events
+    SET status = 'cancelled', updated_at = now()
+    WHERE workspace_id = $1
+      AND target_agent_member_id = $2
+      AND status IN ('queued', 'coalescing', 'running')
+    `,
+    [workspaceId, memberId]
+  );
+  await client.query(
+    `
+    UPDATE wake_batches
+    SET status = 'cancelled', updated_at = now()
+    WHERE workspace_id = $1
+      AND target_agent_member_id = $2
+      AND status IN ('queued', 'coalescing')
+    `,
+    [workspaceId, memberId]
+  );
+  await client.query(
+    `
+    UPDATE agent_sessions
+    SET state = 'cancelled',
+      finished_at = COALESCE(finished_at, now()),
+      updated_at = now()
+    WHERE workspace_id = $1
+      AND agent_member_id = $2
+      AND state IN ('queued', 'running')
+    `,
+    [workspaceId, memberId]
+  );
+}
+
+async function createAgentDm(
+  client: SqlClient,
+  workspaceId: string,
+  humanMemberId: string,
+  agentMemberId: string,
+  displayName: string,
+  handle: string
+): Promise<string> {
+  const candidateNames = [displayName, `${displayName} (@${handle})`, `@${handle}`];
+  let roomName = candidateNames[candidateNames.length - 1];
+  for (const candidate of candidateNames) {
+    const existing = await client.query<{ id: string }>(
+      "SELECT id FROM rooms WHERE workspace_id = $1 AND kind = 'dm' AND name = $2 LIMIT 1",
+      [workspaceId, candidate]
+    );
+    if (existing.rows.length === 0) {
+      roomName = candidate;
+      break;
+    }
+  }
+
+  const roomId = randomUUID();
+  await client.query(
+    `
+    INSERT INTO rooms(id, workspace_id, kind, name, topic, created_by_member_id)
+    VALUES ($1, $2, 'dm', $3, $4, $5)
+    `,
+    [roomId, workspaceId, roomName, `1:1 with ${displayName}`, humanMemberId]
+  );
+
+  for (const memberId of [humanMemberId, agentMemberId]) {
+    await client.query(
+      `
+      INSERT INTO room_memberships(id, workspace_id, room_id, member_id)
+      VALUES ($1, $2, $3, $4)
+      `,
+      [randomUUID(), workspaceId, roomId, memberId]
+    );
+    await client.query(
+      `
+      INSERT INTO dm_participants(id, workspace_id, room_id, member_id)
+      VALUES ($1, $2, $3, $4)
+      `,
+      [randomUUID(), workspaceId, roomId, memberId]
+    );
+  }
+
+  return roomId;
+}
+
+export async function listAgentsForMember(
+  client: SqlClient,
+  workspaceId: string,
+  memberId: string
+): Promise<AgentSummary[]> {
+  await ensureWorkspaceMember(client, workspaceId, memberId);
+  const result = await client.query<AgentRow>(
+    `
+    SELECT
+      members.id AS member_id,
+      members.workspace_id,
+      members.kind,
+      members.display_name,
+      members.handle,
+      CASE WHEN agent_profiles.is_enabled THEN members.presence_state ELSE 'offline'::presence_state END AS presence_state,
+      members.role,
+      agent_profiles.id AS profile_id,
+      agent_profiles.adapter_type,
+      agent_profiles.model,
+      agent_profiles.instructions_ref,
+      agent_profiles.capabilities_json,
+      agent_profiles.budget_policy_json,
+      agent_profiles.is_enabled,
+      agent_profiles.created_at AS profile_created_at,
+      agent_profiles.updated_at AS profile_updated_at,
+      (
+        SELECT rooms.id
+        FROM rooms
+        INNER JOIN dm_participants agent_dm
+          ON agent_dm.room_id = rooms.id
+          AND agent_dm.member_id = members.id
+        INNER JOIN dm_participants viewer_dm
+          ON viewer_dm.room_id = rooms.id
+          AND viewer_dm.member_id = $2
+        WHERE rooms.workspace_id = members.workspace_id
+          AND rooms.kind = 'dm'
+          AND rooms.archived_at IS NULL
+        ORDER BY rooms.created_at ASC, rooms.id ASC
+        LIMIT 1
+      ) AS dm_room_id
+    FROM members
+    INNER JOIN agent_profiles
+      ON agent_profiles.workspace_id = members.workspace_id
+      AND agent_profiles.member_id = members.id
+    WHERE members.workspace_id = $1
+      AND members.kind = 'agent'
+    ORDER BY agent_profiles.is_enabled DESC, members.display_name ASC, members.handle ASC
+    `,
+    [workspaceId, memberId]
+  );
+  return result.rows.map(mapAgent);
+}
+
+export async function createAgent(client: SqlClient, input: CreateAgentInput): Promise<AgentMutationResult> {
+  const workspaceId = input.workspaceId ?? seedWorkspace.id;
+  await ensureWorkspaceMember(client, workspaceId, input.createdByMemberId, "human");
+
+  const displayName = cleanText(input.displayName, 160);
+  const handle = cleanHandle(input.handle);
+  const adapterType = cleanText(input.adapterType ?? "local-adapter", 80);
+  const model = cleanText(input.model ?? "gpt-5-codex", 160);
+  if (!displayName || !handle || !adapterType || !model) {
+    throw new ChatRepositoryError("displayName, valid handle, adapterType, and model are required", 422);
+  }
+  await ensureHandleAvailable(client, workspaceId, handle);
+
+  const agentMemberId = randomUUID();
+  const profileId = randomUUID();
+  const isEnabled = input.isEnabled ?? true;
+
+  await client.query("BEGIN");
+  try {
+    await client.query(
+      `
+      INSERT INTO members(
+        id, workspace_id, kind, display_name, handle, role, avatar_url, timezone, presence_state, last_seen_at
+      )
+      VALUES ($1, $2, 'agent', $3, $4, $5, $6, $7, $8::presence_state, now())
+      `,
+      [
+        agentMemberId,
+        workspaceId,
+        displayName,
+        handle,
+        cleanNullableText(input.role, 120),
+        cleanNullableText(input.avatarUrl, 2048),
+        cleanText(input.timezone, 80) ?? "UTC",
+        isEnabled ? "idle" : "offline"
+      ]
+    );
+    await client.query(
+      `
+      INSERT INTO agent_profiles(
+        id, workspace_id, member_id, adapter_type, model, instructions_ref,
+        capabilities_json, budget_policy_json, is_enabled
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
+      `,
+      [
+        profileId,
+        workspaceId,
+        agentMemberId,
+        adapterType,
+        model,
+        cleanNullableText(input.instructionsRef, 512),
+        JSON.stringify(cleanJsonObject(input.capabilities)),
+        JSON.stringify(cleanJsonObject(input.budgetPolicy)),
+        isEnabled
+      ]
+    );
+    await createAgentDm(client, workspaceId, input.createdByMemberId, agentMemberId, displayName, handle);
+    const agent = await loadAgentByMemberId(client, workspaceId, agentMemberId, input.createdByMemberId);
+    const event = await appendEvent(client, workspaceId, "agent.created", "agent", agent.member.id, { agent });
+    await client.query("COMMIT");
+    return { agent, events: [event] };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
+}
+
+export async function updateAgent(client: SqlClient, input: UpdateAgentInput): Promise<AgentMutationResult> {
+  await ensureWorkspaceMember(client, input.workspaceId, input.updatedByMemberId);
+  const current = await loadAgentByMemberId(client, input.workspaceId, input.memberId, input.updatedByMemberId);
+
+  const displayName = input.displayName === undefined ? current.member.displayName : cleanText(input.displayName, 160);
+  const handle = input.handle === undefined ? current.member.handle : cleanHandle(input.handle);
+  const adapterType =
+    input.adapterType === undefined ? current.profile.adapterType : cleanText(input.adapterType, 80);
+  const model = input.model === undefined ? current.profile.model : cleanText(input.model, 160);
+  if (!displayName || !handle || !adapterType || !model) {
+    throw new ChatRepositoryError("displayName, valid handle, adapterType, and model are required", 422);
+  }
+  if (handle !== current.member.handle) {
+    await ensureHandleAvailable(client, input.workspaceId, handle, input.memberId);
+  }
+
+  const role = input.role === undefined ? current.member.role : cleanNullableText(input.role, 120);
+  const instructionsRef =
+    input.instructionsRef === undefined
+      ? current.profile.instructionsRef
+      : cleanNullableText(input.instructionsRef, 512);
+  const capabilities =
+    input.capabilities === undefined ? current.profile.capabilities : cleanJsonObject(input.capabilities);
+  const budgetPolicy =
+    input.budgetPolicy === undefined ? current.profile.budgetPolicy : cleanJsonObject(input.budgetPolicy);
+  const isEnabled = input.isEnabled ?? current.profile.isEnabled;
+
+  await client.query("BEGIN");
+  try {
+    await client.query(
+      `
+      UPDATE members
+      SET display_name = $3,
+        handle = $4,
+        role = $5,
+        avatar_url = CASE WHEN $6::boolean THEN $7 ELSE avatar_url END,
+        timezone = CASE WHEN $8::boolean THEN $9 ELSE timezone END,
+        presence_state = CASE
+          WHEN $10::boolean THEN CASE WHEN presence_state = 'offline' THEN 'idle'::presence_state ELSE presence_state END
+          ELSE 'offline'::presence_state
+        END,
+        updated_at = now()
+      WHERE workspace_id = $1
+        AND id = $2
+        AND kind = 'agent'
+      `,
+      [
+        input.workspaceId,
+        input.memberId,
+        displayName,
+        handle,
+        role,
+        input.avatarUrl !== undefined,
+        cleanNullableText(input.avatarUrl, 2048),
+        input.timezone !== undefined,
+        cleanNullableText(input.timezone, 80),
+        isEnabled
+      ]
+    );
+    await client.query(
+      `
+      UPDATE agent_profiles
+      SET adapter_type = $3,
+        model = $4,
+        instructions_ref = $5,
+        capabilities_json = $6::jsonb,
+        budget_policy_json = $7::jsonb,
+        is_enabled = $8,
+        updated_at = now()
+      WHERE workspace_id = $1
+        AND member_id = $2
+      `,
+      [
+        input.workspaceId,
+        input.memberId,
+        adapterType,
+        model,
+        instructionsRef,
+        JSON.stringify(capabilities),
+        JSON.stringify(budgetPolicy),
+        isEnabled
+      ]
+    );
+
+    if (!isEnabled) {
+      await cancelActiveAgentWork(client, input.workspaceId, input.memberId);
+    }
+
+    const agent = await loadAgentByMemberId(client, input.workspaceId, input.memberId, input.updatedByMemberId);
+    const type =
+      current.profile.isEnabled !== agent.profile.isEnabled
+        ? agent.profile.isEnabled
+          ? "agent.enabled"
+          : "agent.disabled"
+        : "agent.updated";
+    const event = await appendEvent(client, input.workspaceId, type, "agent", agent.member.id, { agent });
+    await client.query("COMMIT");
+    return { agent, events: [event] };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
+}
+
+export async function removeAgent(
+  client: SqlClient,
+  workspaceId: string,
+  memberId: string,
+  removedByMemberId: string
+): Promise<AgentMutationResult> {
+  const result = await updateAgent(client, {
+    workspaceId,
+    memberId,
+    updatedByMemberId: removedByMemberId,
+    isEnabled: false
+  });
+  const event = await appendEvent(client, workspaceId, "agent.removed", "agent", result.agent.member.id, {
+    agent: result.agent,
+    historyPreserved: true
+  });
+  return { agent: result.agent, events: [...result.events, event] };
 }
 
 export async function listDecisionBlocks(
@@ -1151,61 +2112,221 @@ export async function resolveDecisionBlock(
       [decisionBlock.workspaceId, input.resolvedByMemberId, `Resolved ${decisionBlock.title}`, decisionBlock.id]
     );
 
-    const dedupeKey = `decision:${decisionBlock.id}:resolved`;
-    const existingWake = await client.query<WakeEventRow>(
+    const targetProfile = await client.query<{ is_enabled: boolean }>(
       `
-      SELECT id, workspace_id, room_id, thread_id, trigger_kind, trigger_message_id, trigger_decision_block_id,
-        target_agent_member_id, routing_policy_version, dedupe_key, status, reason_json, created_at, updated_at
-      FROM wake_events
+      SELECT is_enabled
+      FROM agent_profiles
       WHERE workspace_id = $1
-        AND dedupe_key = $2
-        AND status NOT IN ('completed', 'cancelled', 'failed')
-      LIMIT 1
+        AND member_id = $2
       `,
-      [decisionBlock.workspaceId, dedupeKey]
+      [decisionBlock.workspaceId, decisionBlock.createdByAgentMemberId]
     );
-    let wakeEvent: WakeEventSummary;
-    if (existingWake.rows[0]) {
-      wakeEvent = mapWakeEvent(existingWake.rows[0]);
-    } else {
-      const wakeResult = await client.query<WakeEventRow>(
+    const targetEnabled = targetProfile.rows[0]?.is_enabled === true;
+    let wakeEvent: WakeEventSummary | undefined;
+    if (targetEnabled) {
+      const dedupeKey = `decision:${decisionBlock.id}:resolved`;
+      const existingWake = await client.query<WakeEventRow>(
         `
-        INSERT INTO wake_events(
-          id, workspace_id, room_id, thread_id, trigger_kind, trigger_message_id, trigger_decision_block_id,
-          target_agent_member_id, routing_policy_version, dedupe_key, status, reason_json
-        )
-        VALUES ($1, $2, $3, $4, 'decision_resolved', $5, $6, $7, 'chat-workspace:v1', $8, 'queued', $9::jsonb)
-        RETURNING id, workspace_id, room_id, thread_id, trigger_kind, trigger_message_id, trigger_decision_block_id,
+        SELECT id, workspace_id, room_id, thread_id, trigger_kind, trigger_message_id, trigger_decision_block_id,
           target_agent_member_id, routing_policy_version, dedupe_key, status, reason_json, created_at, updated_at
+        FROM wake_events
+        WHERE workspace_id = $1
+          AND dedupe_key = $2
+          AND status NOT IN ('completed', 'cancelled', 'failed')
+        LIMIT 1
         `,
-        [
-          randomUUID(),
-          decisionBlock.workspaceId,
-          message.roomId,
-          decisionBlock.threadId,
-          message.id,
-          decisionBlock.id,
-          decisionBlock.createdByAgentMemberId,
-          dedupeKey,
-          JSON.stringify({ decisionBlockId: decisionBlock.id, resolvedByMemberId: input.resolvedByMemberId, result })
-        ]
+        [decisionBlock.workspaceId, dedupeKey]
       );
-      wakeEvent = mapWakeEvent(wakeResult.rows[0]);
+      if (existingWake.rows[0]) {
+        wakeEvent = mapWakeEvent(existingWake.rows[0]);
+      } else {
+        const wakeResult = await client.query<WakeEventRow>(
+          `
+          INSERT INTO wake_events(
+            id, workspace_id, room_id, thread_id, trigger_kind, trigger_message_id, trigger_decision_block_id,
+            target_agent_member_id, routing_policy_version, dedupe_key, status, reason_json
+          )
+          VALUES ($1, $2, $3, $4, 'decision_resolved', $5, $6, $7, 'chat-workspace:v1', $8, 'queued', $9::jsonb)
+          RETURNING id, workspace_id, room_id, thread_id, trigger_kind, trigger_message_id, trigger_decision_block_id,
+            target_agent_member_id, routing_policy_version, dedupe_key, status, reason_json, created_at, updated_at
+          `,
+          [
+            randomUUID(),
+            decisionBlock.workspaceId,
+            message.roomId,
+            decisionBlock.threadId,
+            message.id,
+            decisionBlock.id,
+            decisionBlock.createdByAgentMemberId,
+            dedupeKey,
+            JSON.stringify({ decisionBlockId: decisionBlock.id, resolvedByMemberId: input.resolvedByMemberId, result })
+          ]
+        );
+        wakeEvent = mapWakeEvent(wakeResult.rows[0]);
+      }
     }
 
     const updatedMessage = await loadMessageById(client, message.id);
     const decisionEvent = await appendEvent(client, decisionBlock.workspaceId, "decision.resolved", "decision", decisionBlock.id, {
       decisionBlock,
-      wakeEvent
+      wakeEvent: wakeEvent ?? null
     });
     const messageEvent = await appendEvent(client, decisionBlock.workspaceId, "message.updated", "message", message.id, {
       message: updatedMessage
     });
-    const wakeWorkspaceEvent = await appendEvent(client, decisionBlock.workspaceId, "wake.queued", "wake", wakeEvent.id, {
+    const wakeWorkspaceEvent = wakeEvent
+      ? await appendEvent(client, decisionBlock.workspaceId, "wake.queued", "wake", wakeEvent.id, { wakeEvent })
+      : null;
+    await client.query("COMMIT");
+    return {
+      decisionBlock,
+      message: updatedMessage,
+      events: wakeWorkspaceEvent ? [decisionEvent, messageEvent, wakeWorkspaceEvent] : [decisionEvent, messageEvent],
       wakeEvent
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
+}
+
+export async function loadMiraMonitor(
+  client: SqlClient,
+  workspaceId = seedWorkspace.id,
+  viewerMemberId = seedMembers[0].id
+): Promise<MiraMonitorSummary> {
+  await getMemberKind(client, workspaceId, viewerMemberId);
+  const stateResult = await client.query<MiraMonitorRow>(
+    `
+    SELECT id, workspace_id, agent_member_id, enabled, last_checked_at, last_error, created_at, updated_at
+    FROM mira_monitor_states
+    WHERE workspace_id = $1
+    `,
+    [workspaceId]
+  );
+
+  if (stateResult.rows.length === 0) {
+    throw new ChatRepositoryError("Mira monitor is not configured for this workspace", 404);
+  }
+
+  const state = stateResult.rows[0];
+  const activityResult = await client.query<MiraMonitorActivityRow>(
+    `
+    SELECT id, workspace_id, agent_member_id, event_kind, severity, summary, created_at
+    FROM mira_monitor_events
+    WHERE workspace_id = $1
+      AND agent_member_id = $2
+      AND created_at >= now() - interval '1 hour'
+    ORDER BY created_at DESC, id DESC
+    LIMIT 12
+    `,
+    [workspaceId, state.agent_member_id]
+  );
+
+  return mapMiraMonitor(state, activityResult.rows.map(mapMiraMonitorActivity));
+}
+
+export async function setMiraMonitorEnabled(
+  client: SqlClient,
+  workspaceId: string,
+  viewerMemberId: string,
+  enabled: boolean
+): Promise<MiraMonitorMutationResult> {
+  await getMemberKind(client, workspaceId, viewerMemberId);
+
+  await client.query("BEGIN");
+  try {
+    const stateResult = await client.query<MiraMonitorRow>(
+      `
+      UPDATE mira_monitor_states
+      SET enabled = $2,
+        last_error = CASE WHEN $2 THEN last_error ELSE NULL END,
+        last_checked_at = now(),
+        updated_at = now()
+      WHERE workspace_id = $1
+      RETURNING id, workspace_id, agent_member_id, enabled, last_checked_at, last_error, created_at, updated_at
+      `,
+      [workspaceId, enabled]
+    );
+
+    if (stateResult.rows.length === 0) {
+      throw new ChatRepositoryError("Mira monitor is not configured for this workspace", 404);
+    }
+
+    const state = stateResult.rows[0];
+    await client.query(
+      `
+      UPDATE agent_profiles
+      SET is_enabled = $3, updated_at = now()
+      WHERE workspace_id = $1
+        AND member_id = $2
+      `,
+      [workspaceId, state.agent_member_id, enabled]
+    );
+    await client.query(
+      `
+      UPDATE members
+      SET presence_state = CASE WHEN $3 THEN 'idle'::presence_state ELSE 'offline'::presence_state END,
+        updated_at = now()
+      WHERE workspace_id = $1
+        AND id = $2
+      `,
+      [workspaceId, state.agent_member_id, enabled]
+    );
+
+    if (!enabled) {
+      await client.query(
+        `
+        UPDATE wake_events
+        SET status = 'cancelled', updated_at = now()
+        WHERE workspace_id = $1
+          AND target_agent_member_id = $2
+          AND status IN ('queued', 'coalescing', 'running')
+        `,
+        [workspaceId, state.agent_member_id]
+      );
+      await client.query(
+        `
+        UPDATE wake_batches
+        SET status = 'cancelled', updated_at = now()
+        WHERE workspace_id = $1
+          AND target_agent_member_id = $2
+          AND status IN ('queued', 'coalescing')
+        `,
+        [workspaceId, state.agent_member_id]
+      );
+      await client.query(
+        `
+        UPDATE agent_sessions
+        SET state = 'cancelled',
+          finished_at = COALESCE(finished_at, now()),
+          updated_at = now()
+        WHERE workspace_id = $1
+          AND agent_member_id = $2
+          AND state IN ('queued', 'running')
+        `,
+        [workspaceId, state.agent_member_id]
+      );
+    }
+
+    const activityResult = await client.query<MiraMonitorActivityRow>(
+      `
+      SELECT id, workspace_id, agent_member_id, event_kind, severity, summary, created_at
+      FROM mira_monitor_events
+      WHERE workspace_id = $1
+        AND agent_member_id = $2
+        AND created_at >= now() - interval '1 hour'
+      ORDER BY created_at DESC, id DESC
+      LIMIT 12
+      `,
+      [workspaceId, state.agent_member_id]
+    );
+    const miraMonitor = mapMiraMonitor(state, activityResult.rows.map(mapMiraMonitorActivity));
+    const event = await appendEvent(client, workspaceId, "mira.monitor.updated", "mira_monitor", state.id, {
+      miraMonitor
     });
     await client.query("COMMIT");
-    return { decisionBlock, message: updatedMessage, events: [decisionEvent, messageEvent, wakeWorkspaceEvent], wakeEvent };
+    return { miraMonitor, events: [event] };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -1235,12 +2356,23 @@ export async function loadBootstrap(
     handle: string;
     role: string | null;
     presence_state: MemberSummary["presenceState"];
+    is_enabled: boolean;
   }>(
     `
-    SELECT id, workspace_id, kind, display_name, handle, role, presence_state
+    SELECT
+      members.id,
+      members.workspace_id,
+      members.kind,
+      members.display_name,
+      members.handle,
+      members.role,
+      members.presence_state,
+      COALESCE(agent_profiles.is_enabled, true) AS is_enabled
     FROM members
-    WHERE workspace_id = $1
-    ORDER BY kind DESC, display_name ASC
+    LEFT JOIN agent_profiles ON agent_profiles.member_id = members.id
+      AND agent_profiles.workspace_id = members.workspace_id
+    WHERE members.workspace_id = $1
+    ORDER BY members.kind DESC, members.display_name ASC
     `,
     [workspaceId]
   );
@@ -1535,11 +2667,14 @@ export async function loadBootstrap(
     SELECT
       members.id AS member_id,
       CASE
+        WHEN agent_profiles.is_enabled = false THEN 'offline'
         WHEN active_sessions.agent_member_id IS NOT NULL THEN 'working'
         WHEN waiting_decisions.created_by_agent_member_id IS NOT NULL THEN 'waiting'
         ELSE members.presence_state
       END AS derived_presence_state
     FROM members
+    LEFT JOIN agent_profiles ON agent_profiles.member_id = members.id
+      AND agent_profiles.workspace_id = members.workspace_id
     LEFT JOIN active_sessions ON active_sessions.agent_member_id = members.id
     LEFT JOIN waiting_decisions ON waiting_decisions.created_by_agent_member_id = members.id
     WHERE members.workspace_id = $1
@@ -1558,7 +2693,8 @@ export async function loadBootstrap(
     displayName: member.display_name,
     handle: member.handle,
     role: member.role,
-    presenceState: derivedPresenceByMember.get(member.id) ?? member.presence_state
+    presenceState: derivedPresenceByMember.get(member.id) ?? member.presence_state,
+    isEnabled: member.is_enabled
   }));
   const rooms: RoomSummary[] = roomResult.rows.map((room) => ({
     id: room.id,
@@ -1573,8 +2709,9 @@ export async function loadBootstrap(
   const artifacts: ArtifactSummary[] = artifactResult.rows.map(mapArtifact);
   const activity: ActivitySummary[] = activityResult.rows.map(mapActivity);
   const threadStates: ThreadStateSummary[] = threadStateResult.rows.map(mapThreadState);
+  const miraMonitor = await loadMiraMonitor(client, workspaceId, viewerMemberId);
 
-  return { workspace, members, rooms, messages, artifacts, activity, threadStates, eventToken: DEV_EVENT_TOKEN };
+  return { workspace, members, rooms, messages, artifacts, activity, threadStates, miraMonitor, eventToken: DEV_EVENT_TOKEN };
 }
 
 export async function listRoomsForMember(
@@ -1645,12 +2782,23 @@ export async function listMembersForMember(
     handle: string;
     role: string | null;
     presence_state: MemberSummary["presenceState"];
+    is_enabled: boolean;
   }>(
     `
-    SELECT id, workspace_id, kind, display_name, handle, role, presence_state
+    SELECT
+      members.id,
+      members.workspace_id,
+      members.kind,
+      members.display_name,
+      members.handle,
+      members.role,
+      members.presence_state,
+      COALESCE(agent_profiles.is_enabled, true) AS is_enabled
     FROM members
-    WHERE workspace_id = $1
-    ORDER BY kind DESC, display_name ASC
+    LEFT JOIN agent_profiles ON agent_profiles.member_id = members.id
+      AND agent_profiles.workspace_id = members.workspace_id
+    WHERE members.workspace_id = $1
+    ORDER BY members.kind DESC, members.display_name ASC
     `,
     [workspaceId]
   );
@@ -1661,7 +2809,8 @@ export async function listMembersForMember(
     displayName: member.display_name,
     handle: member.handle,
     role: member.role,
-    presenceState: member.presence_state
+    presenceState: member.is_enabled ? member.presence_state : "offline",
+    isEnabled: member.is_enabled
   }));
 }
 
@@ -1961,8 +3110,15 @@ export async function sendRoomMessage(client: SqlClient, input: SendMessageInput
     await client.query("UPDATE rooms SET last_message_id = $2, updated_at = now() WHERE id = $1", [room.id, messageId]);
     const message = await loadMessageById(client, messageId);
     const event = await appendEvent(client, room.workspace_id, "message.created", "message", messageId, { message });
+    const routing = await routeMessageToAgents(
+      client,
+      { id: room.id, kind: room.kind, workspaceId: room.workspace_id },
+      message,
+      authorKind,
+      input.mentions ?? []
+    );
     await client.query("COMMIT");
-    return { message, events: [event] };
+    return { message, events: [event, ...routing.events] };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -1977,6 +3133,7 @@ export async function sendThreadReply(client: SqlClient, input: ReplyInput): Pro
   if (parent.deletedAt) {
     throw new ChatRepositoryError("Cannot reply to a deleted message", 422);
   }
+  const room = await getVisibleRoom(client, parent.roomId, input.authorMemberId, parent.workspaceId);
   const existing = await findMessageBySourceClientId(client, parent.workspaceId, parent.roomId, input.sourceClientId);
   if (existing) {
     return { message: existing, events: [], idempotent: true };
@@ -2034,10 +3191,7 @@ export async function sendThreadReply(client: SqlClient, input: ReplyInput): Pro
         input.sourceClientId ?? null
       ]
     );
-    await client.query("UPDATE rooms SET last_message_id = $2, updated_at = now() WHERE id = $1", [
-      parent.roomId,
-      messageId
-    ]);
+    await client.query("UPDATE rooms SET last_message_id = $2, updated_at = now() WHERE id = $1", [room.id, messageId]);
     const thread = await updateThreadActivity(client, threadId, messageId);
     const message = await loadMessageById(client, messageId);
     const messageEvent = await appendEvent(client, parent.workspaceId, "message.created", "message", messageId, {
@@ -2052,8 +3206,15 @@ export async function sendThreadReply(client: SqlClient, input: ReplyInput): Pro
         lastActivityAt: iso(thread.last_activity_at)
       }
     });
+    const routing = await routeMessageToAgents(
+      client,
+      { id: room.id, kind: room.kind, workspaceId: room.workspace_id },
+      message,
+      authorKind,
+      input.mentions ?? []
+    );
     await client.query("COMMIT");
-    return { message, events: [messageEvent, threadEvent] };
+    return { message, events: [messageEvent, threadEvent, ...routing.events] };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
