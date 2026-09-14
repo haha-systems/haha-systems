@@ -3,10 +3,15 @@
 /* ----------------------------------------------------------------------------
    Haha Systems — brutalist editorial stylesheet (Parallax-style)
    Stone/neutral palette. Plain borders. No gradients. No drop shadows.
-   System sans + JetBrains Mono. Compiled to src/assets/css/main.css.
+   Inter + JetBrains Mono, via Google Fonts. Compiled to src/assets/css/main.css.
 ---------------------------------------------------------------------------- */
 
+/* Families are loaded from Google Fonts in the <head>; see site.fonts in
+   src/_data/site.js. Each stack keeps a system fallback so the page stays
+   readable if the webfont request fails or is blocked. */
 @theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 

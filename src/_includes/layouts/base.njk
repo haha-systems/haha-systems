@@ -37,11 +37,15 @@
     </script>
     <noscript><link rel="stylesheet" href="/assets/css/main.css" /></noscript>
     <link rel="alternate" type="application/atom+xml" href="/feed.xml" title="{{ site.title }}" />
-    <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+    {# Google Fonts. Families come from src/_data/site.js (site.fonts). #}
+    {%- if site.fonts and site.fonts.families | length %}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://api.fontshare.com/v2/css?f[]=jetbrains-mono@400,500&display=swap"
+      href="https://fonts.googleapis.com/css2?{% for f in site.fonts.families %}family={{ f }}&amp;{% endfor %}display={{ site.fonts.display or 'swap' }}"
     />
+    {%- endif %}
     <meta property="og:title" content="{% if title %}{{ title }} — {{ site.title }}{% else %}{{ site.title }}{% endif %}" />
     <meta property="og:description" content="{{ description or site.description }}" />
     <meta property="og:type" content="website" />
