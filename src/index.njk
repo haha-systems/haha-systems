@@ -14,22 +14,22 @@ eleventyExcludeFromCollections: true
   </p>
 </section>
 
-<section class="mt-12 grid gap-px border border-neutral-900 bg-neutral-900 md:grid-cols-2 lg:grid-cols-3 dark:border-stone-50/30 dark:bg-stone-50/30" aria-label="Sections">
+<section class="mt-12 grid grid-cols-1 sm:grid-cols-2 gap-px" aria-label="Sections">
   {% for s in site.sections %}
     {% set entries = collections[s.slug] | sortByDateDesc %}
-    <article class="flex min-h-44 flex-col gap-3 bg-stone-50 p-5 dark:bg-neutral-950">
+    <article class="flex flex-col gap-3 py-5 dark:bg-neutral-950">
       <h2 class="m-0 flex items-baseline gap-2 text-xl font-semibold">
         <a class="no-underline hover:underline" href="{{ ('/' + s.slug + '/') | url }}">{{ s.title }}</a>
         <span class="font-mono text-xs text-neutral-500 dark:text-neutral-500">{{ entries.length }}</span>
       </h2>
       <p class="m-0 text-sm leading-relaxed text-neutral-700 dark:text-neutral-400">{{ s.blurb }}</p>
-      <div class="mt-auto flex flex-col gap-1 font-mono text-sm text-neutral-600 dark:text-neutral-400">
+      <div class="mt-auto flex flex-col gap-1 text-sm text-neutral-600 dark:text-neutral-400">
         {% if entries.length %}
           {% for item in entries | limit(3) %}
-            <a class="no-underline hover:underline" href="{{ item.url | url }}">
-              <span>{{ item.data.date | readableDate }}</span>
+            <a class="no-underline hover:underline w-auto" href="{{ item.url | url }}">
+              <span class="font-bold">{{ item.data.date | readableDate }}</span>
               <span aria-hidden="true"> · </span>
-              <span>{{ item.data.title }}</span>
+              <span class="text-slate dark:text-white">{{ item.data.title }}</span>
             </a>
           {% endfor %}
         {% else %}

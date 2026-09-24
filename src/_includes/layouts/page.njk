@@ -7,7 +7,7 @@ layout: layouts/base.njk
     <h1 class="{% if kicker %}mt-3{% else %}mt-0{% endif %} text-4xl font-semibold leading-tight">{{ title }}</h1>
     {% if subtitle %}<p class="mt-3 max-w-2xl leading-relaxed text-neutral-700 dark:text-neutral-400">{{ subtitle }}</p>{% endif %}
   </header>
-  <div class="prose mt-8">
+  <div class="prose">
     {{ content | safe }}
   </div>
 </article>

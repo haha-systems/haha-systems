@@ -51,9 +51,9 @@
     <meta property="og:type" content="website" />
   </head>
   <body class="min-h-screen bg-stone-50 text-neutral-950 antialiased dark:bg-neutral-950 dark:text-stone-50">
-    <a class="skip-link" href="#main">Skip to content</a>
+    <a class="absolute z-100 left-[-9999px] top-auto focus:left-[1rem] focus:top-[1rem]" href="#main">Skip to content</a>
     {% include "partials/header.njk" %}
-    <main id="main" class="mx-auto max-w-6xl px-5 py-10">
+    <main id="main" class="mx-auto max-w-6xl px-5 py-8">
       {{ content | safe }}
     </main>
     {% include "partials/footer.njk" %}

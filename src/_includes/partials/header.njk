@@ -7,12 +7,12 @@
       aria-label="Haha Systems — home"
     >
       {% include "partials/mark.njk" %}
-      <span>Haha Systems</span>
+      <span class="text-sm sm:text-md uppercase">ハハシステム Haha Systems</span>
     </a>
-    <nav class="flex flex-wrap items-center gap-4 font-mono text-sm" aria-label="Primary">
+    <nav class="flex flex-wrap items-center gap-4 uppercase text-xs font-mono aria-label="Primary">
       {% for s in site.sections %}
         <a
-          class="no-underline hover:underline{% if currentSection == s.slug %} font-semibold underline{% endif %}"
+          class="no-underline hover:underline{% if currentSection == s.slug %} font-bold underline{% endif %}"
           href="{{ ('/' + s.slug + '/') | url }}"
           {% if currentSection == s.slug %}aria-current="page"{% endif %}
         >{{ s.title }}</a>

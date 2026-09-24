@@ -11,7 +11,7 @@ module.exports = {
   fonts: {
     // Each entry becomes one `family=` parameter on the CSS2 API URL.
     families: [
-      "Inter:wght@400;500;600",
+      "Habibi:wght@400;500;600",
       "JetBrains+Mono:wght@400;500"
     ],
     display: "swap"
