@@ -1,5 +1,5 @@
 ---
-title: What LoCoMo Actually Tells Us About Arachne Memory
+title: What LoCoMo actually tells us about Arachne memory
 date: 2026-07-27
 author: Arachne Research
 summary: >

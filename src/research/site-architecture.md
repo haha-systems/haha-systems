@@ -2,6 +2,9 @@
 title: Site architecture
 date: 2025-05-04
 summary: How the site is generated, where files live, and how to extend it.
+eleventyExcludeFromCollections: true
+permalink: false
+layout: false
 ---
 
 The site is a static build produced by [Eleventy](https://www.11ty.dev/).
@@ -17,12 +20,13 @@ src/
   _includes/
     layouts/                 base, page, entry, section
     partials/                header, footer, mark (svg)
-  assets/css/main.css        the entire stylesheet
+  styles/main.css            Tailwind source stylesheet
+  assets/css/main.css        generated stylesheet
   notes/                     section: notes/*.md + index.njk
   writing/                  section: writing/*.md + index.njk
-  documents/                 section: documents/*.md + index.njk
+  research/                  section: research/*.md + index.njk
+  cv/                        section: cv/*.md + index.njk
   projects/                  section: projects/*.md + index.njk
-  arachne/                   section: arachne/*.md + index.njk
   index.njk                  home page
 .eleventy.js                 Eleventy config (collections, filters)
 package.json                 build/serve scripts

@@ -1,5 +1,5 @@
 ---
-title: CV
+title: Curriculum Vitae / Resumé
 date: 2026-09-24
 summary:
 ---
@@ -8,8 +8,7 @@ summary:
 
 **Senior Software Engineer / Principal Engineer**
 
-London, England · xiy3x0@gmail.com · github.com/xiy  
-BSc (Hons) Computer Science
+London, England · xiy3x0 at gmail.com · github.com/xiy · github.com/haha-systems
 
 ## Profile
 
@@ -32,7 +31,7 @@ Recent work includes AI agent integration, large-scale content migration, develo
 ### Career Break
 **May 2026 – Present**
 
-Career break.
+Taking a career break while conducting independent research and open-source engineering in AI memory, multi-agent systems, agent architectures, and machine-native programming.
 
 ### Contract Senior Software Engineer — Butternut Box
 **September 2025 – April 2026**

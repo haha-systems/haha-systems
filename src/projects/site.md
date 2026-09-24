@@ -24,6 +24,6 @@ Eleventy and served as static files.
 
 ## Notes
 
-See [Authoring conventions](/documents/authoring-conventions/) and
-[Site architecture](/documents/site-architecture/) for how it is put
-together.
+See the [authoring conventions](https://github.com/haha-systems/haha-systems/blob/main/src/research/authoring-conventions.md)
+and [site architecture](https://github.com/haha-systems/haha-systems/blob/main/src/research/site-architecture.md)
+in the repository for development details.

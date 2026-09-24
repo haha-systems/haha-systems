@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This is a markdown-first Eleventy static site. Source lives in `src/`; generated output goes to `_site/` and should not be edited directly. Layouts are in `src/_includes/layouts/`, reusable partials in `src/_includes/partials/`, and global data in `src/_data/`. Tailwind source CSS is `src/styles/main.css`; generated browser CSS is `src/assets/css/main.css`. Content sections live in `src/notes/`, `src/writing/`, `src/documents/`, `src/projects/`, and `src/arachne/`.
+This is a markdown-first Eleventy static site. Source lives in `src/`; generated output goes to `_site/` and should not be edited directly. Layouts are in `src/_includes/layouts/`, reusable partials in `src/_includes/partials/`, and global data in `src/_data/`. Tailwind source CSS is `src/styles/main.css`; generated browser CSS is `src/assets/css/main.css`. Content sections live in `src/notes/`, `src/writing/`, `src/research/`, `src/projects/`, and `src/cv/`.
 
 ## Build, Test, and Development Commands
 

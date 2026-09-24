@@ -2,6 +2,9 @@
 title: Authoring conventions
 date: 2025-05-01
 summary: How entries are written, named, and filed on this site.
+eleventyExcludeFromCollections: true
+permalink: false
+layout: false
 ---
 
 This document describes the conventions used to author entries on
@@ -43,7 +46,7 @@ recommended; it appears in section indexes and on the home page.
 | ----------- | ------------------------------------------------------------- |
 | notes       | Short, dated entries. No commitment to revision.              |
 | writing     | Longer pieces, edited at least once before publication.       |
-| research    | Notes and info on research projects                           |
+| research    | Research notes and results                                    |
 | projects    | One entry per project, updated as the project changes.        |
 | cv          | A record of my work                                           |
 

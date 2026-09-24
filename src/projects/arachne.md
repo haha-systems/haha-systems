@@ -9,7 +9,7 @@ notes that do not fit cleanly inside a single writing or document. It
 has its own section because the entries refer to one another more than
 they refer to anything else.
 
-See [/arachne/](/arachne/) for the thread itself.
+See [/projects/arachne/](/projects/arachne/) for the thread itself.
 
 ## Status
 

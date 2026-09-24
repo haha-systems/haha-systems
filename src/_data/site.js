@@ -1,8 +1,8 @@
 module.exports = {
   title: "Haha Systems",
-  tagline: "Notes, writing, documents, projects.",
+  tagline: "Notes, writing, research, projects, and a CV.",
   description:
-    "Haha Systems is a working notebook: notes, writing, documents, projects, and Arachne.",
+    "Haha Systems is a working notebook for notes, writing, research, projects, and a CV.",
   url: process.env.SITE_URL || "",
   lang: "en",
   // Google Fonts. Families listed here are requested from fonts.googleapis.com

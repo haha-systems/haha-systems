@@ -1,7 +1,6 @@
 # Haha Systems
 
-A markdown-first Eleventy site: notes, writing, documents, projects, and
-Arachne.
+A markdown-first Eleventy site: notes, writing, research, projects, and a CV.
 
 ## Quick start
 
@@ -26,9 +25,9 @@ src/
   assets/css/main.css        generated stylesheet
   notes/                     section: notes/*.md
   writing/                  section: writing/*.md
-  documents/                 section: documents/*.md
+  research/                  section: research/*.md
+  cv/                        section: cv/*.md
   projects/                  section: projects/*.md
-  arachne/                   section: arachne/*.md
   index.njk                  home
 .eleventy.js                 collections, filters, passthrough
 ```
@@ -52,8 +51,9 @@ summary: One sentence shown on the section index and home.
 The body of the entry, in Markdown.
 ```
 
-See `/documents/authoring-conventions/` once the site is running for
-the canonical version of these rules.
+See `src/research/authoring-conventions.md` for the canonical version of
+these rules. This development document is not part of the public Research
+collection.
 
 ## Adding a new section
 
