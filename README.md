@@ -1,6 +1,6 @@
 # Haha Systems
 
-A markdown-first Eleventy site: notes, writings, documents, projects, and
+A markdown-first Eleventy site: notes, writing, documents, projects, and
 Arachne.
 
 ## Quick start
@@ -25,7 +25,7 @@ src/
   styles/main.css            Tailwind source stylesheet
   assets/css/main.css        generated stylesheet
   notes/                     section: notes/*.md
-  writings/                  section: writings/*.md
+  writing/                  section: writing/*.md
   documents/                 section: documents/*.md
   projects/                  section: projects/*.md
   arachne/                   section: arachne/*.md

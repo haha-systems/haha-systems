@@ -10,9 +10,9 @@ deviation is intentional.
 
 ## File names
 
-Entries live as Markdown files inside one of the section directories:
-`notes/`, `writings/`, `documents/`, `projects/`, `arachne/`. File names
-follow the pattern:
+Entries live as Markdown files inside one of the section directories. 
+
+File names follow the pattern:
 
 ```
 YYYY-MM-DD-short-slug.md
@@ -42,10 +42,10 @@ recommended; it appears in section indexes and on the home page.
 | Section     | Used for                                                      |
 | ----------- | ------------------------------------------------------------- |
 | notes       | Short, dated entries. No commitment to revision.              |
-| writings    | Longer pieces, edited at least once before publication.       |
-| documents   | Specifications, plans, references — written to be re-read.    |
+| writing     | Longer pieces, edited at least once before publication.       |
+| research    | Notes and info on research projects                           |
 | projects    | One entry per project, updated as the project changes.        |
-| arachne     | A single ongoing thread; entries numbered as well as dated.   |
+| cv          | A record of my work                                           |
 
 ## Voice
 

@@ -2,7 +2,7 @@
   "name": "haha-systems",
   "version": "0.1.0",
   "private": true,
-  "description": "Haha Systems — notes, writings, documents, projects, and Arachne.",
+  "description": "Haha Systems",
   "packageManager": "bun@1.3.7",
   "scripts": {
     "clean": "rm -rf _site",

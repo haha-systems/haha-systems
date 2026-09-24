@@ -23,7 +23,7 @@ eleventyExcludeFromCollections: true
         <span class="font-mono text-xs text-neutral-500 dark:text-neutral-500">{{ entries.length }}</span>
       </h2>
       <p class="m-0 text-sm leading-relaxed text-neutral-700 dark:text-neutral-400">{{ s.blurb }}</p>
-      <div class="mt-auto flex flex-col gap-1 text-sm text-neutral-600 dark:text-neutral-400">
+      <div class="flex flex-col gap-2 text-sm text-neutral-600 dark:text-neutral-400">
         {% if entries.length %}
           {% for item in entries | limit(3) %}
             <a class="no-underline hover:underline w-auto" href="{{ item.url | url }}">

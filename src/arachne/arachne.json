@@ -1,6 +1,0 @@
-{
-  "layout": "layouts/entry.njk",
-  "section": "arachne",
-  "permalink": "/arachne/{{ page.fileSlug }}/",
-  "tags": ["arachne"]
-}

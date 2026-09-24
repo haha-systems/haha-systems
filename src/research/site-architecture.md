@@ -19,7 +19,7 @@ src/
     partials/                header, footer, mark (svg)
   assets/css/main.css        the entire stylesheet
   notes/                     section: notes/*.md + index.njk
-  writings/                  section: writings/*.md + index.njk
+  writing/                  section: writing/*.md + index.njk
   documents/                 section: documents/*.md + index.njk
   projects/                  section: projects/*.md + index.njk
   arachne/                   section: arachne/*.md + index.njk

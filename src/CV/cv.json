@@ -1,0 +1,6 @@
+{
+  "layout": "layouts/entry.njk",
+  "section": "cv",
+  "permalink": "/cv/{{ page.fileSlug }}/",
+  "tags": ["cv"]
+}

@@ -1,6 +1,0 @@
-{
-  "layout": "layouts/entry.njk",
-  "section": "documents",
-  "permalink": "/documents/{{ page.fileSlug }}/",
-  "tags": ["documents"]
-}

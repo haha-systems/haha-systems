@@ -1,8 +1,8 @@
 module.exports = {
   title: "Haha Systems",
-  tagline: "Notes, writings, documents, projects.",
+  tagline: "Notes, writing, documents, projects.",
   description:
-    "Haha Systems is a working notebook: notes, writings, documents, projects, and Arachne.",
+    "Haha Systems is a working notebook: notes, writing, documents, projects, and Arachne.",
   url: process.env.SITE_URL || "",
   lang: "en",
   // Google Fonts. Families listed here are requested from fonts.googleapis.com
@@ -20,9 +20,9 @@ module.exports = {
   // Section metadata (used to render the site nav and section index pages).
   sections: [
     { slug: "notes",     title: "Notes",     blurb: "Short, dated entries. Working memory." },
-    { slug: "writings",  title: "Writings",  blurb: "Longer pieces, edited at least once." },
-    { slug: "documents", title: "Documents", blurb: "Specifications, plans, references." },
-    { slug: "projects",  title: "Projects",  blurb: "Things being built, in various states of repair." },
-    { slug: "arachne",   title: "Arachne",   blurb: "A thread, kept separately." }
+    { slug: "writing",  title: "Writing",  blurb: "Longer pieces, edited at least once." },
+    { slug: "research", title: "Research", blurb: "Questions. Questions that need answering." },
+    { slug: "projects",  title: "Projects",  blurb: "Personal projects, some open-source." },
+    { slug: "cv",   title: "CV",   blurb: "What I've done." }
   ]
 };

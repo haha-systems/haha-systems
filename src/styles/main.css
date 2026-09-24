@@ -13,6 +13,40 @@
   --font-sans: "Habibi", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
     "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --paper: #E5E7E2;
+  --surface: #EFF1ED;
+  --ink: #14161A;
+  --muted: #5A6068;
+  --rule: #B4B9B3;
+  --machine: #0E1113;
+  --amber: #E8A33D;
+  --accent-on-ink: #E8A33D;
+  --focus: #0F5C6E;
+  --success: #14603C;
+  --warning: #8A5A00;
+  --danger: #97231F;
+  --blend: multiply;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+  --radius-sm: 0.125rem;
+  --radius-md: 0.25rem;
+  --measure-prose: 68ch;
+  --measure-diagram: 90rem;
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-machine: var(--machine);
+  --color-amber: var(--amber);
+  --color-accent-on-ink: var(--accent-on-ink);
+  --color-focus: var(--focus);
 }
 
 /* ---------- Base ---------- */

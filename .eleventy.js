@@ -50,17 +50,17 @@ module.exports = function (eleventyConfig) {
   eleventyConfig.addCollection("notes", (api) =>
     api.getFilteredByGlob("./src/notes/*.md").sort(byDateDesc)
   );
-  eleventyConfig.addCollection("writings", (api) =>
-    api.getFilteredByGlob("./src/writings/*.md").sort(byDateDesc)
+  eleventyConfig.addCollection("writing", (api) =>
+    api.getFilteredByGlob("./src/writing/*.md").sort(byDateDesc)
   );
-  eleventyConfig.addCollection("documents", (api) =>
-    api.getFilteredByGlob("./src/documents/*.md").sort(byDateDesc)
+  eleventyConfig.addCollection("research", (api) =>
+    api.getFilteredByGlob("./src/research/*.md").sort(byDateDesc)
   );
   eleventyConfig.addCollection("projects", (api) =>
     api.getFilteredByGlob("./src/projects/*.md").sort(byDateDesc)
   );
-  eleventyConfig.addCollection("arachne", (api) =>
-    api.getFilteredByGlob("./src/arachne/*.md").sort(byDateDesc)
+  eleventyConfig.addCollection("cv", (api) =>
+    api.getFilteredByGlob("./src/cv/*.md").sort(byDateDesc)
   );
 
   return {
